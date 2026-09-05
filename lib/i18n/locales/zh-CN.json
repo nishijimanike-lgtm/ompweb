@@ -1019,6 +1019,8 @@
   "settingsTabs.agents.description": "任务智能体、模型设置与工具策略",
   "settingsTabs.mcp.label": "扩展与工具",
   "settingsTabs.mcp.description": "MCP 服务端、托管技能与 OMP 插件",
+  "settingsTabs.skills.label": "技能中枢",
+  "settingsTabs.skills.description": "来源工作台、场景管理、技能市场与格式诊断",
   "settingsTabs.system.label": "系统与更新",
   "settingsTabs.system.description": "应用更新、运行时版本与活动会话重启",
   "settingsConfig.loadingSettings": "正在加载设置…",

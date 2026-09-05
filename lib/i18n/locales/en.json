@@ -1019,6 +1019,8 @@
   "settingsTabs.agents.description": "Task agents, model settings, and tool policy",
   "settingsTabs.mcp.label": "Extensions & Tools",
   "settingsTabs.mcp.description": "MCP servers, managed skills, and OMP plugins",
+  "settingsTabs.skills.label": "Skill Hub",
+  "settingsTabs.skills.description": "Sources workspace, scenes, market catalog, and format diagnostics",
   "settingsTabs.system.label": "System & Updates",
   "settingsTabs.system.description": "App updates, runtime version, and active session restart",
   "settingsConfig.loadingSettings": "Loading settings…",

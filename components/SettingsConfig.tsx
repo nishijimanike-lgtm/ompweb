@@ -20,10 +20,12 @@ const SettingsTabLoading = () => {
 };
 const ModelsConfig = dynamic(() => import("./ModelsConfig").then((module) => module.ModelsConfig), { loading: SettingsTabLoading, ssr: false });
 const SkillsConfig = dynamic(() => import("./SkillsConfig").then((module) => module.SkillsConfig), { loading: SettingsTabLoading, ssr: false });
+const SkillHubPanel = dynamic(() => import("./skill-hub").then((module) => module.SkillHubPanel), { loading: SettingsTabLoading, ssr: false });
 const PluginsConfig = dynamic(() => import("./PluginsConfig").then((module) => module.PluginsConfig), { loading: SettingsTabLoading, ssr: false });
 const McpConfig = dynamic(() => import("./McpConfig").then((module) => module.McpConfig), { loading: SettingsTabLoading, ssr: false });
 const AgentsConfig = dynamic(() => import("./AgentsConfig").then((module) => module.AgentsConfig), { loading: SettingsTabLoading, ssr: false });
 const UsageConfig = dynamic(() => import("./UsageConfig").then((module) => module.UsageConfig), { loading: SettingsTabLoading, ssr: false });
+import { skillHubApi } from "./skill-hub";
 
 type UpdateState = AppUpdateInfo;
 type WindowsServiceStatus = {
@@ -1059,10 +1061,24 @@ export function SettingsConfig({ activeTab, toolCallsDefaultCollapsed, onToolCal
               </div>
             )}
 
-            {/* SKILLS SUB-PANEL CONTRACT MATCH */}
-            {cwd && currentTab === "skills" && (
-              <div role="tabpanel" id="settings-panel-skills" aria-labelledby="settings-tab-skills" style={{ display: currentTab === "skills" ? "flex" : "none", height: "100%", minHeight: 0, flexDirection: "column" }}>
-                <SkillsConfig embedded cwd={cwd} onClose={onClose} />
+            {/* SKILLS / SKILL HUB PANEL */}
+            {currentTab === "skills" && (
+              <div
+                role="tabpanel"
+                id="settings-panel-skills"
+                aria-labelledby="settings-tab-skills"
+                style={{
+                  display: currentTab === "skills" ? "flex" : "none",
+                  flexDirection: "column",
+                  padding: 20,
+                  width: "100%",
+                  maxWidth: "100%",
+                  boxSizing: "border-box",
+                  minWidth: 0,
+                  overflowX: "hidden",
+                }}
+              >
+                <SkillHubPanel api={skillHubApi} cwd={cwd ?? undefined} />
               </div>
             )}
 

@@ -1019,6 +1019,8 @@
   "settingsTabs.agents.description": "Task agents, model settings, and tool policy",
   "settingsTabs.mcp.label": "Extensions & Tools",
   "settingsTabs.mcp.description": "MCP servers, managed skills, and OMP plugins",
+  "settingsTabs.skills.label": "スキルハブ",
+  "settingsTabs.skills.description": "ソースワークスペース、シーン管理、マーケット、フォーマット診断",
   "settingsTabs.system.label": "System & Updates",
   "settingsTabs.system.description": "App updates, runtime version, and active session restart",
   "settingsConfig.loadingSettings": "Loading settings…",

@@ -11,6 +11,7 @@ import {
   toggleBatch,
   toggleSkill,
 } from '@/lib/skill-hub/skill-hub-service';
+import { restartAllRpcSessions } from '@/lib/rpc-manager';
 import {
   getSkillHubStore,
   StoreError,
@@ -351,6 +352,7 @@ export async function POST(
           return NextResponse.json({ error: 'name is required' }, { status: 400 });
         }
         const result = await toggleSkill(name, enabled, { cwd });
+        void restartAllRpcSessions().catch(() => {});
         return NextResponse.json(result);
       }
 
@@ -363,9 +365,9 @@ export async function POST(
           return NextResponse.json({ error: 'names must be non-empty array' }, { status: 400 });
         }
         const result = await toggleBatch(names, enabled, { cwd });
+        void restartAllRpcSessions().catch(() => {});
         return NextResponse.json(result);
       }
-
       case 'create': {
         const name = typeof body.name === 'string' ? body.name.trim() : '';
         const description = typeof body.description === 'string' ? body.description.trim() : '';

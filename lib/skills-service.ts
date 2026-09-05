@@ -5,7 +5,7 @@ import { parse as parseYaml } from "yaml";
 import { getAgentDir } from "@/lib/omp/paths";
 import type { SkillInfo } from "@/lib/api-types";
 import { annotateSkillsWithInstallInfo } from "@/lib/skill-lock";
-
+import { getSkillHubStore } from "@/lib/skill-hub/skill-hub-store";
 /**
  * Pure-Node skill discovery mirroring omp's providers
  * (oh-my-pi/packages/coding-agent/src/discovery/{builtin,claude,agents,codex,github}.ts).
@@ -212,14 +212,23 @@ async function scanRoot(root: SkillScanRoot, diagnostics: SkillDiagnostic[]): Pr
     if (entry.name.startsWith(".")) return;
     if (!entry.isDirectory() && !entry.isSymbolicLink()) return;
     const skillPath = path.join(root.dir, entry.name, "SKILL.md");
+    const skillDisabledPath = path.join(root.dir, entry.name, "SKILL.md.disabled");
     let content: string;
+    let isDisabledFile = false;
     try {
       content = await fs.readFile(skillPath, "utf8");
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        try {
+          content = await fs.readFile(skillDisabledPath, "utf8");
+          isDisabledFile = true;
+        } catch {
+          return;
+        }
+      } else {
         diagnostics.push({ type: "warning", message: "Failed to read skill file", path: skillPath });
+        return;
       }
-      return;
     }
     const { frontmatter } = parseSkillFrontmatter(content);
     if (frontmatter.enabled === false) return;
@@ -230,9 +239,9 @@ async function scanRoot(root: SkillScanRoot, diagnostics: SkillDiagnostic[]): Pr
     skills.push({
       name,
       description,
-      filePath: skillPath,
+      filePath: isDisabledFile ? skillDisabledPath : skillPath,
       baseDir: path.join(root.dir, entry.name),
-      disableModelInvocation: readDisableModelInvocation(frontmatter),
+      disableModelInvocation: isDisabledFile || readDisableModelInvocation(frontmatter),
       sourceInfo: { source: root.source, scope: root.scope },
     });
   }));
@@ -244,8 +253,19 @@ async function scanRoot(root: SkillScanRoot, diagnostics: SkillDiagnostic[]): Pr
 export async function discoverSkills(cwd: string): Promise<SkillsWithDiagnostics> {
   const diagnostics: SkillDiagnostic[] = [];
   const byName = new Map<string, SkillInfo>();
+  const store = getSkillHubStore();
+  let disabledFromStore = new Set<string>();
+  try {
+    await store.ensureLoaded();
+    const disabledList = await store.listDisabled();
+    disabledFromStore = new Set(disabledList.map((d) => d.name));
+  } catch {}
+
   for (const root of buildScanRoots(cwd)) {
     for (const skill of await scanRoot(root, diagnostics)) {
+      if (disabledFromStore.has(skill.name)) {
+        skill.disableModelInvocation = true;
+      }
       if (!byName.has(skill.name)) byName.set(skill.name, skill);
     }
   }

@@ -561,11 +561,21 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     const controller = new AbortController();
     const url = cwd ? `/api/skills?cwd=${encodeURIComponent(cwd)}` : `/api/skill-hub/catalog`;
     void fetch(url, { signal: controller.signal })
-      .then((response) => response.ok ? response.json() as Promise<{ skills?: Array<{ name?: string; description?: string; disableModelInvocation?: boolean }> }> : null)
+      .then((response) => response.ok ? response.json() as Promise<{
+        skills?: Array<{ name?: string; description?: string; disableModelInvocation?: boolean }>;
+        disabled?: Array<{ name?: string; description?: string }>;
+      }> : null)
       .then((data) => {
         if (!data) return;
-        setDormantSkillNames(new Set((data.skills ?? []).flatMap((skill) => skill.disableModelInvocation && skill.name ? [skill.name] : [])));
-        setDiscoveredSkills((data.skills ?? []).filter((skill): skill is { name: string; description?: string; disableModelInvocation?: boolean } => Boolean(skill.name)));
+        const disabledNames = new Set<string>();
+        for (const s of data.skills ?? []) {
+          if (s.disableModelInvocation && s.name) disabledNames.add(s.name);
+        }
+        for (const d of data.disabled ?? []) {
+          if (d.name) disabledNames.add(d.name);
+        }
+        setDormantSkillNames(disabledNames);
+        setDiscoveredSkills((data.skills ?? []).filter((skill): skill is { name: string; description?: string; disableModelInvocation?: boolean } => Boolean(skill.name && !skill.disableModelInvocation && !disabledNames.has(skill.name))));
       })
       .catch(() => {});
     return () => controller.abort();
@@ -595,6 +605,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
 
     for (const command of slashCommands ?? []) {
       if (CLIENT_BUILTIN_COMMAND_NAMES.has(command.name)) continue;
+      if (command.source === "skill" && dormantSkillNames.has(command.name)) continue;
       const source = command.source as string;
       if (source === "builtin" || source === "ompBuiltin") {
         commands.push({ name: command.name, description: command.description, source: "ompBuiltin" });
@@ -605,7 +616,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     }
 
     for (const skill of discoveredSkills) {
-      if (!seen.has(skill.name.toLowerCase()) && !CLIENT_BUILTIN_COMMAND_NAMES.has(skill.name) && !skill.disableModelInvocation) {
+      if (!seen.has(skill.name.toLowerCase()) && !CLIENT_BUILTIN_COMMAND_NAMES.has(skill.name) && !skill.disableModelInvocation && !dormantSkillNames.has(skill.name)) {
         commands.push({
           name: skill.name,
           description: skill.description,
@@ -616,13 +627,14 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     }
 
     return commands;
-  }, [slashCommands, discoveredSkills]);
+  }, [slashCommands, discoveredSkills, dormantSkillNames]);
 
   const filteredSlashCommands = (() => {
     if (slashQuery === null) return [];
     const commands = [...(isStreaming ? [] : builtinSlashCommands), ...externalSlashCommands];
     return [...commands]
       .filter((command) => {
+        if (isDormantSkillCommand(command, dormantSkillNames)) return false;
         const name = command.name.toLowerCase();
         const description = command.description?.toLowerCase() ?? "";
         return name.includes(slashQuery) || description.includes(slashQuery);
@@ -630,8 +642,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       .sort((a, b) => {
         const rankDelta = slashMatchRank(a, slashQuery) - slashMatchRank(b, slashQuery);
         if (rankDelta !== 0) return rankDelta;
-        const dormancyDelta = Number(isDormantSkillCommand(a, dormantSkillNames)) - Number(isDormantSkillCommand(b, dormantSkillNames));
-        if (dormancyDelta !== 0) return dormancyDelta;
         return SLASH_SOURCE_ORDER[a.source] - SLASH_SOURCE_ORDER[b.source]
           || modelCollator.compare(a.name, b.name);
       });

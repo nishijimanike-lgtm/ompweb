@@ -8,6 +8,7 @@ import {
   readDisableModelInvocation,
   setDisableModelInvocation,
 } from "@/lib/skills-service";
+import { restartAllRpcSessions } from "@/lib/rpc-manager";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 
 export const dynamic = "force-dynamic";
@@ -65,6 +66,7 @@ export async function PATCH(req: Request) {
 
     // Report what the file now says rather than what was asked for.
     const { frontmatter } = parseSkillFrontmatter(updated);
+    void restartAllRpcSessions().catch(() => {});
     return NextResponse.json({ success: true, disableModelInvocation: readDisableModelInvocation(frontmatter) });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });

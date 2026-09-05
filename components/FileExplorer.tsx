@@ -25,6 +25,10 @@ import {
   joinFilePath,
   normalizeFilePathSlashes,
 } from "@/lib/file-paths";
+import {
+  FileExplorerContextMenu,
+  type FileExplorerContextTarget,
+} from "./FileExplorerContextMenu";
 import type { GitFileStatus, GitFileStatusKind, GitStatusResponse } from "@/lib/git-types";
 import { MAX_RESULT_LIMIT, type FileIndexEntry } from "@/lib/file-fuzzy";
 import { buildSearchRows } from "@/lib/search-results";
@@ -217,6 +221,7 @@ function TreeNode({
   highlightedPaths,
   gitStatusByPath,
   changedDirectoryPaths,
+  onContextMenuNode,
 }: {
   node: FileNode;
   depth: number;
@@ -232,6 +237,7 @@ function TreeNode({
   changedDirectoryPaths: Set<string>;
   /** Dimmed directory shown next to the name in flat search results. */
   secondaryLabel?: string;
+  onContextMenuNode?: (e: React.MouseEvent, node: FileNode) => void;
 }) {
   const { t } = useI18n();
   const open = expandedPaths.has(node.fullPath);
@@ -330,6 +336,13 @@ function TreeNode({
     <div>
       <div
         onClick={handleClick}
+        onContextMenu={(e) => {
+          if (onContextMenuNode) {
+            e.preventDefault();
+            e.stopPropagation();
+            onContextMenuNode(e, node);
+          }
+        }}
         onKeyDown={handleKeyDown}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
@@ -544,6 +557,7 @@ function TreeNode({
                 highlightedPaths={highlightedPaths}
                 gitStatusByPath={gitStatusByPath}
                 changedDirectoryPaths={changedDirectoryPaths}
+                onContextMenuNode={onContextMenuNode}
               />
             ))}
             {children.length === 0 && loaded && (
@@ -583,6 +597,55 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   const [uploadSummary, setUploadSummary] = useState<UploadSummary | null>(null);
   const [pendingConflict, setPendingConflict] = useState<PendingConflict | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [contextMenu, setContextMenu] = useState<{
+    target: FileExplorerContextTarget;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  const handleContextMenuNode = useCallback((e: React.MouseEvent, node: FileNode) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({
+      target: {
+        name: node.name,
+        fullPath: node.fullPath,
+        isDir: node.isDir,
+      },
+      x: e.clientX,
+      y: e.clientY,
+    });
+  }, []);
+
+  const handleOpenInNewTab = useCallback(
+    (target: FileExplorerContextTarget) => {
+      if (!target.isDir) {
+        onOpenFile(target.fullPath, target.name);
+      } else {
+        setExpandedPaths((prev) => {
+          const next = new Set(prev);
+          next.add(target.fullPath);
+          return next;
+        });
+      }
+    },
+    [onOpenFile]
+  );
+
+  const handleOpenToSide = useCallback(
+    (target: FileExplorerContextTarget) => {
+      if (!target.isDir) {
+        onOpenFile(target.fullPath, target.name);
+      } else {
+        setExpandedPaths((prev) => {
+          const next = new Set(prev);
+          next.add(target.fullPath);
+          return next;
+        });
+      }
+    },
+    [onOpenFile]
+  );
   const [searchPaths, setSearchPaths] = useState<string[]>([]);
   const [searchTruncated, setSearchTruncated] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -1079,6 +1142,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
                   highlightedPaths={highlightedPaths}
                   gitStatusByPath={gitStatusByPath}
                   changedDirectoryPaths={changedDirectoryPaths}
+                  onContextMenuNode={handleContextMenuNode}
                 />
               ))}
               {searchTruncated && (
@@ -1111,6 +1175,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
                   highlightedPaths={highlightedPaths}
                   gitStatusByPath={gitStatusByPath}
                   changedDirectoryPaths={changedDirectoryPaths}
+                  onContextMenuNode={handleContextMenuNode}
                 />
               ))
             )}
@@ -1122,6 +1187,18 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
           </>
         )}
       </div>
+
+      {contextMenu && (
+        <FileExplorerContextMenu
+          target={contextMenu.target}
+          x={contextMenu.x}
+          y={contextMenu.y}
+          cwd={cwd}
+          onClose={() => setContextMenu(null)}
+          onOpenInNewTab={handleOpenInNewTab}
+          onOpenToSide={handleOpenToSide}
+        />
+      )}
     </div>
   );
 });

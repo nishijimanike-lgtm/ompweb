@@ -4,7 +4,6 @@
 
 import type { JSX, KeyboardEvent } from 'react';
 import type { DisabledSkill, WritableRoot } from '@/lib/skill-hub/protocol';
-import { tt } from './helpers';
 import css from './panel.module.css';
 
 function disabledSourceLabel(root: WritableRoot): string {

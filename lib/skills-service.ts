@@ -108,6 +108,12 @@ function buildScanRoots(cwd: string): SkillScanRoot[] {
   roots.push({ dir: path.join(home, ".agent", "skills"), source: ".agents", scope: "user" });
   roots.push({ dir: path.join(home, ".agents", "skills"), source: ".agents", scope: "user" });
 
+
+  // dsh compat: user ~/.dsh/skills + project .dsh/skills.
+  roots.push({ dir: path.join(home, ".dsh", "skills"), source: ".dsh", scope: "user" });
+  for (const dir of projectAncestors) {
+    roots.push({ dir: path.join(dir, ".dsh", "skills"), source: ".dsh", scope: "project" });
+  }
   // codex compat: user ~/.codex/skills + project .codex/skills.
   roots.push({ dir: path.join(home, ".codex", "skills"), source: ".codex", scope: "user" });
   roots.push({ dir: path.join(cwd, ".codex", "skills"), source: ".codex", scope: "project" });

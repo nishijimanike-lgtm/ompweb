@@ -21,13 +21,13 @@ export function SkillRow(props: { skill: CatalogSkill; hub: SkillHubState }): JS
     <span
       className={`${css.dot} ${css.dotModel}`}
       style={dotStyle(hub.hubConfig?.dotModelColor)}
-      title={tt('legend.model')}
+      aria-label={tt('legend.model')}
     />
   ) : skill.invocation.userInvocable ? (
     <span
       className={`${css.dot} ${css.dotUser}`}
       style={dotStyle(hub.hubConfig?.dotUserColor)}
-      title={tt('legend.user')}
+      aria-label={tt('legend.user')}
     />
   ) : null;
 
@@ -54,14 +54,14 @@ export function SkillRow(props: { skill: CatalogSkill; hub: SkillHubState }): JS
         <div className={css.rowName}>
           <span className={css.rowNameText}>{skill.name}</span>
           {isDisplayNameDistinct(skill.name, skill.displayName) ? (
-            <span className={css.displayName} title={skill.displayName}>
+            <span className={css.displayName}>
               {skill.displayName}
             </span>
           ) : null}
           {count > 0 ? <span className={css.useCount}>{count}</span> : null}
           {dot}
           {isDuplicate ? (
-            <span className={`${css.badge} ${css.statusError}`} title="重名技能">
+            <span className={`${css.badge} ${css.statusError}`}>
               重名
             </span>
           ) : null}
@@ -69,7 +69,7 @@ export function SkillRow(props: { skill: CatalogSkill; hub: SkillHubState }): JS
             <span className={css.useTime}>{relativeTimeText(lastUsed)}</span>
           ) : null}
         </div>
-        <div className={css.rowDesc} title={skill.description}>
+        <div className={css.rowDesc}>
           {skill.shortDescription ?? skill.description}
         </div>
       </div>
@@ -94,7 +94,6 @@ export function SkillRow(props: { skill: CatalogSkill; hub: SkillHubState }): JS
               type="button"
               className={`${css.opBtn} ${css.opDanger} ${css.iconBtn}`}
               disabled={hub.busyNames.has(skill.name) || hub.tagBusy}
-              title="Delete skill"
               aria-label="Delete skill"
               onClick={(event) => {
                 event.stopPropagation();

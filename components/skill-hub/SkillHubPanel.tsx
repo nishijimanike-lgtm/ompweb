@@ -47,7 +47,15 @@ export function SkillHubPanel(props: SkillHubPanelProps) {
   const { shortenedCount, fixingPaths, clearListFilters } = hub
 
   if (detail !== null) {
-    const disabledRecord = catalog?.disabled.find((record) => record.name === detail.name)
+    const disabledRecord = catalog?.disabled.find((record) => record.name === detail.name) ?? (
+      !detail.enabled ? {
+        name: detail.name,
+        description: detail.description,
+        root: (detail.source as WritableRoot) || 'user-agents',
+        path: detail.path || '',
+        disabledAt: detail.updatedAt || Date.now(),
+      } : undefined
+    )
     return (
       <SkillDetailView
         detail={detail}

@@ -554,15 +554,18 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     ? value.slice(1).toLowerCase()
     : null;
   const [dormantSkillNames, setDormantSkillNames] = useState<Set<string>>(() => new Set());
+  const [discoveredSkills, setDiscoveredSkills] = useState<Array<{ name: string; description?: string; disableModelInvocation?: boolean }>>([]);
 
   useEffect(() => {
-    if (slashQuery === null || !cwd) return;
+    if (slashQuery === null) return;
     const controller = new AbortController();
-    void fetch(`/api/skills?cwd=${encodeURIComponent(cwd)}`, { signal: controller.signal })
-      .then((response) => response.ok ? response.json() as Promise<{ skills?: Array<{ name?: string; disableModelInvocation?: boolean }> }> : null)
+    const url = cwd ? `/api/skills?cwd=${encodeURIComponent(cwd)}` : `/api/skill-hub/catalog`;
+    void fetch(url, { signal: controller.signal })
+      .then((response) => response.ok ? response.json() as Promise<{ skills?: Array<{ name?: string; description?: string; disableModelInvocation?: boolean }> }> : null)
       .then((data) => {
         if (!data) return;
         setDormantSkillNames(new Set((data.skills ?? []).flatMap((skill) => skill.disableModelInvocation && skill.name ? [skill.name] : [])));
+        setDiscoveredSkills((data.skills ?? []).filter((skill): skill is { name: string; description?: string; disableModelInvocation?: boolean } => Boolean(skill.name)));
       })
       .catch(() => {});
     return () => controller.abort();
@@ -586,17 +589,34 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   // below the client built-ins; any name the web UI intercepts itself —
   // whether an omp builtin or a user extension — is dropped so each command
   // appears exactly once and the client interception behavior is unchanged.
-  const externalSlashCommands: SlashCommandPaletteItem[] = React.useMemo(
-    () => (slashCommands ?? []).flatMap((command): SlashCommandPaletteItem[] => {
+  const externalSlashCommands: SlashCommandPaletteItem[] = React.useMemo(() => {
+    const seen = new Set<string>();
+    const commands: SlashCommandPaletteItem[] = [];
+
+    for (const command of slashCommands ?? []) {
+      if (CLIENT_BUILTIN_COMMAND_NAMES.has(command.name)) continue;
       const source = command.source as string;
-      if (CLIENT_BUILTIN_COMMAND_NAMES.has(command.name)) return [];
       if (source === "builtin" || source === "ompBuiltin") {
-        return [{ name: command.name, description: command.description, source: "ompBuiltin" }];
+        commands.push({ name: command.name, description: command.description, source: "ompBuiltin" });
+      } else {
+        commands.push(command);
       }
-      return [command];
-    }),
-    [slashCommands],
-  );
+      seen.add(command.name.toLowerCase());
+    }
+
+    for (const skill of discoveredSkills) {
+      if (!seen.has(skill.name.toLowerCase()) && !CLIENT_BUILTIN_COMMAND_NAMES.has(skill.name) && !skill.disableModelInvocation) {
+        commands.push({
+          name: skill.name,
+          description: skill.description,
+          source: "skill",
+        });
+        seen.add(skill.name.toLowerCase());
+      }
+    }
+
+    return commands;
+  }, [slashCommands, discoveredSkills]);
 
   const filteredSlashCommands = (() => {
     if (slashQuery === null) return [];

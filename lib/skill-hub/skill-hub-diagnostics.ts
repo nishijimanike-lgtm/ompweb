@@ -52,7 +52,7 @@ export function parseFrontmatter(text: string): { value: FrontmatterValue } | { 
 
   let invocation: { modelInvocable: boolean; userInvocable: boolean };
   try {
-    const disableModel = frontmatterBoolean(record, 'disable-model-invocation') ?? frontmatterBoolean(record, 'disableModelInvocation');
+    const disableModel = frontmatterBoolean(record, 'disable-model-invocation') ?? frontmatterBoolean(record, 'disableModelInvocation') ?? frontmatterBoolean(record, 'hide');
     const userInvocable = frontmatterBoolean(record, 'user-invocable') ?? frontmatterBoolean(record, 'userInvocable');
     invocation = { modelInvocable: disableModel !== true, userInvocable: userInvocable !== false };
   } catch (error) {

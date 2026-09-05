@@ -31,7 +31,7 @@ export function SourcesView(props: { hub: SkillHubState }) {
   const hasProject = projectSkillsAll.length > 0
   const collections = groupsState?.collections ?? []
   const uncategorized = filterBySource(sorted, sourceFilter, origins).filter((skill) => origins[skill.name] === undefined && !isProjectSource(skill.source))
-  const personalDisabledAll = (catalog?.disabled ?? []).filter((record) => origins[record.name] === undefined)
+  const personalDisabledAll = (catalog?.disabled ?? []).filter((record) => origins[record.name] === undefined && !isProjectSource(record.root))
     .filter((record) => normalized.length === 0 || record.name.toLocaleLowerCase().includes(normalized) || record.description.toLocaleLowerCase().includes(normalized))
     .filter((record) => sourceFilter === 'all' || sourceFilter === PRIVATE_SOURCE)
   const allPersonalNamesAll = [...uncategorized.map((s) => s.name), ...personalDisabledAll.map((r) => r.name)]
@@ -91,7 +91,7 @@ export function SourcesView(props: { hub: SkillHubState }) {
               onDragEnd={() => { setTopDragKey(null); setTopOverKey(null) }}
             >
               <div className={css.groupHead}>
-                <span className={css.dragHandle} aria-hidden title="拖拽调整顺序">⋮⋮</span>
+                <span className={css.dragHandle} aria-hidden>⋮⋮</span>
                 <button type="button" className={css.disclosure} aria-expanded={!topCollapsed} onClick={() => { toggleGroupCollapse('project') }}>
                   <span className={css.chevron + (topCollapsed ? ' ' + css.chevronCollapsed : '')} />
                   <span className={css.groupTitle}>{tt('groups.project')} · {byProject.size}</span>
@@ -169,7 +169,7 @@ export function SourcesView(props: { hub: SkillHubState }) {
               onDragEnd={() => { setTopDragKey(null); setTopOverKey(null) }}
             >
               <div className={css.groupHead}>
-                <span className={css.dragHandle} aria-hidden title="拖拽调整顺序">⋮⋮</span>
+                <span className={css.dragHandle} aria-hidden>⋮⋮</span>
                 <button type="button" className={css.disclosure} aria-expanded={!collapsed} onClick={() => { toggleGroupCollapse('col:' + collection.name) }}>
                   <span className={css.chevron + (collapsed ? ' ' + css.chevronCollapsed : '')} />
                   <span className={css.groupTitle}>
@@ -223,7 +223,7 @@ export function SourcesView(props: { hub: SkillHubState }) {
 
         if (topKey === 'uncategorized-source' && hasPersonal) {
           const uncategorizedSkills = filterBySource(sorted, sourceFilter, origins).filter((skill) => origins[skill.name] === undefined && !isProjectSource(skill.source))
-          const personalDisabled = (catalog?.disabled ?? []).filter((record) => origins[record.name] === undefined)
+          const personalDisabled = (catalog?.disabled ?? []).filter((record) => origins[record.name] === undefined && !isProjectSource(record.root))
             .filter((record) => normalized.length === 0 || record.name.toLocaleLowerCase().includes(normalized) || record.description.toLocaleLowerCase().includes(normalized))
             .filter((record) => sourceFilter === 'all' || sourceFilter === PRIVATE_SOURCE)
           const allPersonalNames = [...uncategorizedSkills.map((s) => s.name), ...personalDisabled.map((r) => r.name)]
@@ -231,6 +231,8 @@ export function SourcesView(props: { hub: SkillHubState }) {
           const collapsed = collapsedGroups.has('uncategorized-source')
           const isDragging = topDragKey === 'uncategorized-source'
           const isOver = topOverKey === 'uncategorized-source' && topDragKey !== 'uncategorized-source'
+          const view = groupSwitchView(allPersonalNames, viewNames)
+          const hasWritable = allPersonalNames.some((name) => actionNames.has(name) || (catalog?.disabled ?? []).some((d) => d.name === name))
           return (
             <section
               key="uncategorized-source"
@@ -243,12 +245,19 @@ export function SourcesView(props: { hub: SkillHubState }) {
               onDragEnd={() => { setTopDragKey(null); setTopOverKey(null) }}
             >
               <div className={css.groupHead}>
-                <span className={css.dragHandle} aria-hidden title="拖拽调整顺序">⋮⋮</span>
+                <span className={css.dragHandle} aria-hidden>⋮⋮</span>
                 <button type="button" className={css.disclosure} aria-expanded={!collapsed} onClick={() => { toggleGroupCollapse('uncategorized-source') }}>
                   <span className={css.chevron + (collapsed ? ' ' + css.chevronCollapsed : '')} />
                   <span className={css.groupTitle}>{tt('groups.personal')} · {allPersonalNames.length}<GroupSummary members={allPersonalNames} hub={hub} /></span>
                 </button>
                 <span className={css.groupOps}>
+                  <button type="button" role="switch" aria-checked={view.state !== 'off'} aria-label={tt('groups.personal')}
+                    className={css.switch + (view.state === 'on' ? ' ' + css.switchOn : view.state === 'mixed' ? ' ' + css.switchMixed : '')}
+                    disabled={batchBusy || allPersonalNames.length === 0 || (view.state !== 'off' && !hasWritable)}
+                    title={view.state !== 'off' && !hasWritable ? tt('groups.noWritable') : undefined}
+                    onClick={(event) => { event.stopPropagation(); toggleGroup('uncategorized-source', tt('groups.personal'), view.state) }}>
+                    <span className={css.switchThumb} />
+                  </button>
                   {hub.editMode ? <button type="button" className={css.opBtn + ' ' + css.opDanger} title={tt('source.deleteGroupHint', { count: allPersonalNames.length })} onClick={(event) => { event.stopPropagation(); requestDeleteGroup(tt('groups.personal'), allPersonalNames) }}>{tt('source.deleteGroup')}</button> : null}
                 </span>
               </div>

@@ -58,7 +58,7 @@ export function DisabledRow(props: {
             </span>
           ) : null}
         </div>
-        <div className={css.rowDesc} title={record.description}>
+        <div className={css.rowDesc}>
           {record.description}
         </div>
       </div>

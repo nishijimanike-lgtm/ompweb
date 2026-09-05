@@ -61,9 +61,9 @@ export function SkillDetailView(props: SkillDetailViewProps) {
           {detail.name}
           {isDisplayNameDistinct(detail.name, detail.displayName) ? <span className={css.displayName} style={{ fontSize: 13, marginLeft: 0 }}>{detail.displayName}</span> : null}
           {detail.invocation.modelInvocable
-            ? <span className={css.dot + ' ' + css.dotModel} style={dotStyle(hubConfig?.dotModelColor)} title={tt('legend.model')} />
+            ? <span className={css.dot + ' ' + css.dotModel} style={dotStyle(hubConfig?.dotModelColor)} aria-label={tt('legend.model')} />
             : detail.invocation.userInvocable
-              ? <span className={css.dot + ' ' + css.dotUser} style={dotStyle(hubConfig?.dotUserColor)} title={tt('legend.user')} />
+              ? <span className={css.dot + ' ' + css.dotUser} style={dotStyle(hubConfig?.dotUserColor)} aria-label={tt('legend.user')} />
               : null}
         </span>
         <span className={css.actions} style={{ marginLeft: 'auto', gap: 6 }}>

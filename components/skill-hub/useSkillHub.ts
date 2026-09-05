@@ -301,8 +301,15 @@ export function useSkillHub(api: SkillHubApi, initialWorkspace?: string) {
     const map = new Map<string, string[]>()
     for (const tag of groupsState?.tags ?? []) map.set('tag:' + tag.id, tag.skillNames)
     for (const collection of groupsState?.collections ?? []) map.set('col:' + collection.name, collection.skillNames)
+    const origins = groupsState?.origins ?? {}
+    const personalSkills = (catalog?.skills ?? []).filter((s) => origins[s.name] === undefined && !isProjectSource(s.source)).map((s) => s.name)
+    const personalDisabled = (catalog?.disabled ?? []).filter((d) => origins[d.name] === undefined && !isProjectSource(d.root)).map((d) => d.name)
+    const allPersonal = [...personalSkills, ...personalDisabled]
+    if (allPersonal.length > 0) {
+      map.set('uncategorized-source', allPersonal)
+    }
     return map
-  }, [groupsState])
+  }, [groupsState, catalog])
 
   const actionNames = useMemo(() => new Set((catalog?.skills ?? []).filter((skill) => skill.writable).map((skill) => skill.name)), [catalog])
   const viewNames = useMemo(() => new Set((catalog?.skills ?? []).map((skill) => skill.name)), [catalog])

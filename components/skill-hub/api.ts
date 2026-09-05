@@ -86,11 +86,12 @@ export class SkillHubApi {
   }
 
   async toggle(name: string, enabled: boolean, options?: { cwd?: string }): Promise<CatalogResponse> {
-    await fetchWithTimeout(SKILL_HUB_API.toggle, {
+    const res = await fetchWithTimeout(SKILL_HUB_API.toggle, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ name, enabled, ...(options?.cwd ? { cwd: options.cwd } : {}) }),
-    }).then((res) => readJson<ToggleResponse>(res));
+    }).then((r) => readJson<ToggleResponse>(r));
+    if (res.catalog) return res.catalog;
     return this.catalog(options);
   }
 
@@ -104,7 +105,7 @@ export class SkillHubApi {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ names, enabled, ...(options?.cwd ? { cwd: options.cwd } : {}) }),
     }).then((r) => readJson<ToggleBatchResponse>(r));
-    const catalog = await this.catalog(options);
+    const catalog = res.catalog ?? (await this.catalog(options));
     return { ok: true, catalog, failures: res.failures ?? [] };
   }
 

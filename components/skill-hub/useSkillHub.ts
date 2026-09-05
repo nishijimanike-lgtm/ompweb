@@ -302,11 +302,28 @@ export function useSkillHub(api: SkillHubApi, initialWorkspace?: string) {
     for (const tag of groupsState?.tags ?? []) map.set('tag:' + tag.id, tag.skillNames)
     for (const collection of groupsState?.collections ?? []) map.set('col:' + collection.name, collection.skillNames)
     const origins = groupsState?.origins ?? {}
-    const personalSkills = (catalog?.skills ?? []).filter((s) => origins[s.name] === undefined && !isProjectSource(s.source)).map((s) => s.name)
-    const personalDisabled = (catalog?.disabled ?? []).filter((d) => origins[d.name] === undefined && !isProjectSource(d.root)).map((d) => d.name)
-    const allPersonal = [...personalSkills, ...personalDisabled]
+    const personalSkills = (catalog?.skills ?? []).filter((s) => origins[s.name] === undefined && !isProjectSource(s.source))
+    const personalDisabled = (catalog?.disabled ?? []).filter((d) => origins[d.name] === undefined && !isProjectSource(d.root))
+
+    // Legacy fallback key for personal as a whole
+    const allPersonal = [...personalSkills.map((s) => s.name), ...personalDisabled.map((d) => d.name)]
     if (allPersonal.length > 0) {
       map.set('uncategorized-source', allPersonal)
+    }
+
+    // Per-root keys for independent management
+    const roots = new Set<string>([
+      ...personalSkills.map((s) => s.source),
+      ...personalDisabled.map((d) => d.root),
+    ])
+    for (const r of roots) {
+      const names = [
+        ...personalSkills.filter((s) => s.source === r).map((s) => s.name),
+        ...personalDisabled.filter((d) => d.root === r).map((d) => d.name),
+      ]
+      if (names.length > 0) {
+        map.set('root:' + r, names)
+      }
     }
     return map
   }, [groupsState, catalog])

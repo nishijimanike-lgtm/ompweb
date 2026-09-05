@@ -30,16 +30,21 @@ export function SourcesView(props: { hub: SkillHubState }) {
   const projectSkillsAll = filterBySource(sorted, sourceFilter, origins).filter((skill) => isProjectSource(skill.source))
   const hasProject = projectSkillsAll.length > 0
   const collections = groupsState?.collections ?? []
-  const uncategorized = filterBySource(sorted, sourceFilter, origins).filter((skill) => origins[skill.name] === undefined && !isProjectSource(skill.source))
+  const uncategorizedAll = filterBySource(sorted, sourceFilter, origins).filter((skill) => origins[skill.name] === undefined && !isProjectSource(skill.source))
   const personalDisabledAll = (catalog?.disabled ?? []).filter((record) => origins[record.name] === undefined && !isProjectSource(record.root))
     .filter((record) => normalized.length === 0 || record.name.toLocaleLowerCase().includes(normalized) || record.description.toLocaleLowerCase().includes(normalized))
     .filter((record) => sourceFilter === 'all' || sourceFilter === PRIVATE_SOURCE || record.root === sourceFilter)
-  const allPersonalNamesAll = [...uncategorized.map((s) => s.name), ...personalDisabledAll.map((r) => r.name)]
-  const hasPersonal = allPersonalNamesAll.length > 0
+
+  const availableLocalRoots = ['user-agents', 'user-codex', 'user-dsh', 'user-omp'].filter((r) => {
+    const hasEnabled = uncategorizedAll.some((s) => s.source === r);
+    const hasDisabled = personalDisabledAll.some((d) => d.root === r);
+    return hasEnabled || hasDisabled;
+  });
+
   const defaultTopKeys: string[] = [
     ...(hasProject ? ['project'] : []),
     ...collections.map((c) => 'col:' + c.name),
-    ...(hasPersonal ? ['uncategorized-source'] : []),
+    ...availableLocalRoots.map((r) => 'root:' + r),
   ]
   const storedTopOrder = groupsState?.sourceGroupOrder ?? []
   const topOrderedKeys = (() => {
@@ -62,7 +67,7 @@ export function SourcesView(props: { hub: SkillHubState }) {
     void hub.reorderSourceGroups(next)
   }
 
-  const isEmptyTop = !hasProject && collections.length === 0 && !hasPersonal
+  const isEmptyTop = !hasProject && collections.length === 0 && availableLocalRoots.length === 0
 
   return (
     <>
@@ -221,50 +226,50 @@ export function SourcesView(props: { hub: SkillHubState }) {
           )
         }
 
-        if (topKey === 'uncategorized-source' && hasPersonal) {
-          const uncategorizedSkills = filterBySource(sorted, sourceFilter, origins).filter((skill) => origins[skill.name] === undefined && !isProjectSource(skill.source))
-          const personalDisabled = (catalog?.disabled ?? []).filter((record) => origins[record.name] === undefined && !isProjectSource(record.root))
-            .filter((record) => normalized.length === 0 || record.name.toLocaleLowerCase().includes(normalized) || record.description.toLocaleLowerCase().includes(normalized))
-            .filter((record) => sourceFilter === 'all' || sourceFilter === PRIVATE_SOURCE || record.root === sourceFilter)
-          const allPersonalNames = [...uncategorizedSkills.map((s) => s.name), ...personalDisabled.map((r) => r.name)]
-          if (allPersonalNames.length === 0) return null
-          const collapsed = collapsedGroups.has('uncategorized-source')
-          const isDragging = topDragKey === 'uncategorized-source'
-          const isOver = topOverKey === 'uncategorized-source' && topDragKey !== 'uncategorized-source'
-          const view = groupSwitchView(allPersonalNames, viewNames)
-          const hasWritable = allPersonalNames.some((name) => actionNames.has(name) || (catalog?.disabled ?? []).some((d) => d.name === name))
+        if (topKey.startsWith('root:')) {
+          const rootName = topKey.slice(5)
+          const rootSkills = uncategorizedAll.filter((skill) => skill.source === rootName)
+          const rootDisabled = personalDisabledAll.filter((record) => record.root === rootName)
+          const allRootNames = [...rootSkills.map((s) => s.name), ...rootDisabled.map((r) => r.name)]
+          if (allRootNames.length === 0) return null
+          const collapsed = collapsedGroups.has(topKey)
+          const isDragging = topDragKey === topKey
+          const isOver = topOverKey === topKey && topDragKey !== topKey
+          const view = groupSwitchView(allRootNames, viewNames)
+          const hasWritable = allRootNames.some((name) => actionNames.has(name) || (catalog?.disabled ?? []).some((d) => d.name === name))
+          const groupTitleText = tt(('group.' + rootName) as 'group.user-agents' | 'group.user-codex' | 'group.user-dsh' | 'group.user-omp') || rootName
           return (
             <section
-              key="uncategorized-source"
+              key={topKey}
               className={css.section + (isDragging ? ' ' + css.dragging : '') + (isOver ? ' ' + css.dragOver : '')}
               draggable
-              onDragStart={(e) => { setTopDragKey('uncategorized-source'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', 'uncategorized-source') }}
-              onDragOver={(e) => { e.preventDefault(); if (topOverKey !== 'uncategorized-source') setTopOverKey('uncategorized-source') }}
-              onDragLeave={() => { if (topOverKey === 'uncategorized-source') setTopOverKey(null) }}
-              onDrop={(e) => { e.preventDefault(); handleTopDrop('uncategorized-source'); setTopOverKey(null) }}
+              onDragStart={(e) => { setTopDragKey(topKey); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', topKey) }}
+              onDragOver={(e) => { e.preventDefault(); if (topOverKey !== topKey) setTopOverKey(topKey) }}
+              onDragLeave={() => { if (topOverKey === topKey) setTopOverKey(null) }}
+              onDrop={(e) => { e.preventDefault(); handleTopDrop(topKey); setTopOverKey(null) }}
               onDragEnd={() => { setTopDragKey(null); setTopOverKey(null) }}
             >
               <div className={css.groupHead}>
                 <span className={css.dragHandle} aria-hidden>⋮⋮</span>
-                <button type="button" className={css.disclosure} aria-expanded={!collapsed} onClick={() => { toggleGroupCollapse('uncategorized-source') }}>
+                <button type="button" className={css.disclosure} aria-expanded={!collapsed} onClick={() => { toggleGroupCollapse(topKey) }}>
                   <span className={css.chevron + (collapsed ? ' ' + css.chevronCollapsed : '')} />
-                  <span className={css.groupTitle}>{tt('groups.personal')} · {allPersonalNames.length}<GroupSummary members={allPersonalNames} hub={hub} /></span>
+                  <span className={css.groupTitle}>{groupTitleText} · {allRootNames.length}<GroupSummary members={allRootNames} hub={hub} /></span>
                 </button>
                 <span className={css.groupOps}>
-                  <button type="button" role="switch" aria-checked={view.state !== 'off'} aria-label={tt('groups.personal')}
+                  <button type="button" role="switch" aria-checked={view.state !== 'off'} aria-label={groupTitleText}
                     className={css.switch + (view.state === 'on' ? ' ' + css.switchOn : view.state === 'mixed' ? ' ' + css.switchMixed : '')}
-                    disabled={batchBusy || allPersonalNames.length === 0 || (view.state !== 'off' && !hasWritable)}
+                    disabled={batchBusy || allRootNames.length === 0 || (view.state !== 'off' && !hasWritable)}
                     title={view.state !== 'off' && !hasWritable ? tt('groups.noWritable') : undefined}
-                    onClick={(event) => { event.stopPropagation(); toggleGroup('uncategorized-source', tt('groups.personal'), view.state) }}>
+                    onClick={(event) => { event.stopPropagation(); toggleGroup(topKey, groupTitleText, view.state) }}>
                     <span className={css.switchThumb} />
                   </button>
-                  {hub.editMode ? <button type="button" className={css.opBtn + ' ' + css.opDanger} title={tt('source.deleteGroupHint', { count: allPersonalNames.length })} onClick={(event) => { event.stopPropagation(); requestDeleteGroup(tt('groups.personal'), allPersonalNames) }}>{tt('source.deleteGroup')}</button> : null}
+                  {hub.editMode ? <button type="button" className={css.opBtn + ' ' + css.opDanger} title={tt('source.deleteGroupHint', { count: allRootNames.length })} onClick={(event) => { event.stopPropagation(); requestDeleteGroup(groupTitleText, allRootNames) }}>{tt('source.deleteGroup')}</button> : null}
                 </span>
               </div>
               {!collapsed ? (
                 <>
-                  {uncategorizedSkills.map((skill) => <SkillRow key={skill.name} skill={skill} hub={hub} />)}
-                  {personalDisabled.map((record) => (<DisabledRow key={record.name} record={record} busy={busyNames.has(record.name)} duplicate={catalog?.duplicateNames?.includes(record.name) === true} onEnable={() => { void enableDisabled(record) }} onOpen={() => { void hub.openDetail(record.name) }} />))}
+                  {rootSkills.map((skill) => <SkillRow key={skill.name} skill={skill} hub={hub} />)}
+                  {rootDisabled.map((record) => (<DisabledRow key={record.name} record={record} busy={busyNames.has(record.name)} duplicate={catalog?.duplicateNames?.includes(record.name) === true} onEnable={() => { void enableDisabled(record) }} onOpen={() => { void hub.openDetail(record.name) }} />))}
                 </>
               ) : null}
             </section>

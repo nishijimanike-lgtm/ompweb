@@ -1027,7 +1027,7 @@ export function SettingsConfig({ activeTab, toolCallsDefaultCollapsed, onToolCal
 
             {/* EXTENSIONS & TOOLS TAB (MCP, SKILLS, PLUGINS) */}
             {currentTab === "mcp" && (
-              <div role="tabpanel" id="settings-panel-mcp" aria-labelledby="settings-tab-mcp" style={{ display: currentTab === "mcp" ? "flex" : "none", height: "100%", minHeight: 0, flexDirection: "column", overflowY: "auto", padding: 20, gap: 16 }}>
+              <div role="tabpanel" id="settings-panel-mcp" aria-labelledby="settings-tab-mcp" style={{ display: currentTab === "mcp" ? "flex" : "none", minHeight: "100%", flexDirection: "column", padding: 20, gap: 16 }}>
                 <div>
                   <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>{t("settingsConfig.extensionsTools")}</h3>
                   <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-muted)" }}>{t("settingsConfig.extensionsToolsDesc")}</p>

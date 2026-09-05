@@ -694,7 +694,7 @@ export function SettingsConfig({ activeTab, toolCallsDefaultCollapsed, onToolCal
             <SettingsHighlightContext.Provider value={highlightId}>
               <SettingsTabs active={currentTab} onSelect={handleSelectTab} workspaceReady={workspaceReady} layout={isMobile ? "horizontal" : "vertical"} />
 
-              <div style={contentStyle}>
+              <div style={contentStyle} className="settings-content-scroll">
             {nativeSettingsError && (
               <div style={{ margin: 16 }}>
                 <Alert variant="error" description={nativeSettingsError} onDismiss={() => setNativeSettingsError(null)} />
@@ -1027,7 +1027,7 @@ export function SettingsConfig({ activeTab, toolCallsDefaultCollapsed, onToolCal
 
             {/* EXTENSIONS & TOOLS TAB (MCP, SKILLS, PLUGINS) */}
             {currentTab === "mcp" && (
-              <div role="tabpanel" id="settings-panel-mcp" aria-labelledby="settings-tab-mcp" style={{ display: currentTab === "mcp" ? "flex" : "none", minHeight: "100%", flexDirection: "column", padding: 20, gap: 16 }}>
+              <div role="tabpanel" id="settings-panel-mcp" aria-labelledby="settings-tab-mcp" style={{ display: currentTab === "mcp" ? "flex" : "none", flexDirection: "column", padding: 20, gap: 16 }}>
                 <div>
                   <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>{t("settingsConfig.extensionsTools")}</h3>
                   <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-muted)" }}>{t("settingsConfig.extensionsToolsDesc")}</p>

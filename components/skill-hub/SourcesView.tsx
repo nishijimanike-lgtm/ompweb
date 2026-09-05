@@ -33,7 +33,7 @@ export function SourcesView(props: { hub: SkillHubState }) {
   const uncategorized = filterBySource(sorted, sourceFilter, origins).filter((skill) => origins[skill.name] === undefined && !isProjectSource(skill.source))
   const personalDisabledAll = (catalog?.disabled ?? []).filter((record) => origins[record.name] === undefined && !isProjectSource(record.root))
     .filter((record) => normalized.length === 0 || record.name.toLocaleLowerCase().includes(normalized) || record.description.toLocaleLowerCase().includes(normalized))
-    .filter((record) => sourceFilter === 'all' || sourceFilter === PRIVATE_SOURCE)
+    .filter((record) => sourceFilter === 'all' || sourceFilter === PRIVATE_SOURCE || record.root === sourceFilter)
   const allPersonalNamesAll = [...uncategorized.map((s) => s.name), ...personalDisabledAll.map((r) => r.name)]
   const hasPersonal = allPersonalNamesAll.length > 0
   const defaultTopKeys: string[] = [
@@ -225,7 +225,7 @@ export function SourcesView(props: { hub: SkillHubState }) {
           const uncategorizedSkills = filterBySource(sorted, sourceFilter, origins).filter((skill) => origins[skill.name] === undefined && !isProjectSource(skill.source))
           const personalDisabled = (catalog?.disabled ?? []).filter((record) => origins[record.name] === undefined && !isProjectSource(record.root))
             .filter((record) => normalized.length === 0 || record.name.toLocaleLowerCase().includes(normalized) || record.description.toLocaleLowerCase().includes(normalized))
-            .filter((record) => sourceFilter === 'all' || sourceFilter === PRIVATE_SOURCE)
+            .filter((record) => sourceFilter === 'all' || sourceFilter === PRIVATE_SOURCE || record.root === sourceFilter)
           const allPersonalNames = [...uncategorizedSkills.map((s) => s.name), ...personalDisabled.map((r) => r.name)]
           if (allPersonalNames.length === 0) return null
           const collapsed = collapsedGroups.has('uncategorized-source')

@@ -54,7 +54,9 @@ export function filterBySource(
   if (source === 'all') return [...skills];
   return skills.filter((skill) => {
     if (isProjectSource(skill.source)) return false;
-    return (origins[skill.name] ?? PRIVATE_SOURCE) === source;
+    const origin = origins[skill.name];
+    if (origin !== undefined) return origin === source;
+    return skill.source === source || source === PRIVATE_SOURCE;
   });
 }
 

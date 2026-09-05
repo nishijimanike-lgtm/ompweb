@@ -36,6 +36,7 @@ export const WRITABLE_ROOTS: readonly WritableRoot[] = [
   'user-agents',
   'user-omp',
   'user-dsh',
+  'user-codex',
   'project-agents',
   'project-omp',
 ];
@@ -61,6 +62,9 @@ export function resolveRootPath(
     }
     case 'user-dsh': {
       return join(home, '.dsh', 'skills');
+    }
+    case 'user-codex': {
+      return join(home, '.codex', 'skills');
     }
     case 'project-agents': {
       if (!cwd) return join(home, '.agents', 'skills');
@@ -297,7 +301,7 @@ export async function scanAllRoots(options?: { cwd?: string }): Promise<CatalogR
   }
 
   // Determine which roots to scan
-  const rootsToScan: WritableRoot[] = ['user-agents', 'user-omp', 'user-dsh'];
+  const rootsToScan: WritableRoot[] = ['user-agents', 'user-omp', 'user-dsh', 'user-codex'];
   if (options?.cwd) {
     rootsToScan.push('project-agents', 'project-omp');
   }
@@ -528,7 +532,7 @@ export async function toggleSkill(
   const store = getSkillHubStore();
   await store.ensureLoaded();
 
-  const rootsToScan: WritableRoot[] = ['user-agents', 'user-omp', 'user-dsh'];
+  const rootsToScan: WritableRoot[] = ['user-agents', 'user-omp', 'user-dsh', 'user-codex'];
   if (options?.cwd) {
     rootsToScan.push('project-agents', 'project-omp');
   }
@@ -770,7 +774,7 @@ export async function deleteSkill(
   const store = getSkillHubStore();
   await store.ensureLoaded();
 
-  const rootsToScan: WritableRoot[] = ['user-agents', 'user-omp', 'user-dsh'];
+  const rootsToScan: WritableRoot[] = ['user-agents', 'user-omp', 'user-dsh', 'user-codex'];
   if (options?.cwd) rootsToScan.push('project-agents', 'project-omp');
 
   let sourcePath: string | undefined;

@@ -185,6 +185,7 @@ export function SkillHubPanel(props: SkillHubPanelProps) {
               <option value="user-agents">~/.agents/skills (全局标准推荐)</option>
               <option value="user-omp">~/.omp/agent/skills (omp 全局)</option>
               <option value="user-dsh">~/.dsh/skills (dsh 全局)</option>
+              <option value="user-codex">~/.codex/skills (codex 全局)</option>
               {workspace ? (
                 <>
                   <option value="project-agents">./.agents/skills (当前项目)</option>
@@ -240,9 +241,10 @@ export function SkillHubPanel(props: SkillHubPanelProps) {
                 </span>
                 <select className={css.select} value={sourceFilter} onChange={(event) => { setSourceFilter(event.target.value) }}>
                   <option value="all">{tt('filter.allSources')}</option>
-                  {sourceOptions.map((source) => (
-                    <option key={source} value={source}>{source === PRIVATE_SOURCE ? tt('filter.private') : source}</option>
-                  ))}
+                  {sourceOptions.map((source) => {
+                    const label = source === PRIVATE_SOURCE ? tt('filter.private') : source === 'user-codex' ? 'Codex (全局)' : source === 'user-agents' ? 'Agents (全局)' : source === 'user-omp' ? 'OMP (全局)' : source === 'user-dsh' ? 'DSH (全局)' : source;
+                    return <option key={source} value={source}>{label}</option>;
+                  })}
                 </select>
               </>
             ) : null}

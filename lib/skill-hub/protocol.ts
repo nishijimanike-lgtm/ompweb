@@ -42,8 +42,13 @@ export const SKILL_HUB_API = {
 } as const;
 
 /** User-level and project-level roots the hub may write to. */
-export type WritableRoot = 'user-agents' | 'user-omp' | 'user-dsh' | 'project-agents' | 'project-omp';
-
+export type WritableRoot =
+  | 'user-agents'
+  | 'user-omp'
+  | 'user-dsh'
+  | 'user-codex'
+  | 'project-agents'
+  | 'project-omp';
 /** Invocation policy resolved by the registry, re-spelled for the wire. */
 export interface HubInvocation {
   /** Whether model-facing catalogs may load this skill. */

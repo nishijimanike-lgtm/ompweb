@@ -954,8 +954,8 @@ export function useSkillHub(api: SkillHubApi, initialWorkspace?: string) {
   const sourceOptions = useMemo(() => {
     const skills = catalog?.skills ?? []
     const repos = [...new Set(skills.map((skill) => origins[skill.name]).filter((repo): repo is string => repo !== undefined))].sort()
-    const hasPrivate = skills.some((skill) => origins[skill.name] === undefined && !isProjectSource(skill.source))
-    return [...repos, ...(hasPrivate ? [PRIVATE_SOURCE] : [])]
+    const userRoots = [...new Set(skills.filter((skill) => origins[skill.name] === undefined && !isProjectSource(skill.source)).map((skill) => skill.source))].sort()
+    return [...repos, ...userRoots]
   }, [catalog, origins])
 
   const filtered = useMemo(() => (catalog?.skills ?? []).filter((skill) => {

@@ -14,8 +14,9 @@ function disabledSourceLabel(root: WritableRoot): string {
       return 'user-omp';
     case 'user-dsh':
       return 'user-dsh';
+    case 'user-codex':
+      return 'user-codex';
     case 'project-agents':
-      return 'project-agents';
     case 'project-omp':
       return 'project-omp';
     default:

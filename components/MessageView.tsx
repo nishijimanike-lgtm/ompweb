@@ -431,6 +431,16 @@ function AssistantMessageView({
   const blockItemsRef = useRef(blockItems);
   blockItemsRef.current = blockItems;
 
+  const [hovered, setHovered] = useState(false);
+  const [actionsActive, setActionsActive] = useState(false);
+  const { copied, copy: copyContent } = useCopyFeedback();
+
+  const textContent = useMemo(() => {
+    return blocks
+      .filter((b): b is TextContent => b.type === "text")
+      .map((b) => b.text)
+      .join("\n\n");
+  }, [blocks]);
 
   // Streaming-based timing for thinking blocks
   const blockStartTimesRef = useRef<Map<number, number>>(new Map());
@@ -512,6 +522,8 @@ function AssistantMessageView({
     <div
       className="chat-message"
       style={{ marginBottom: 6 }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
     >
       {/* Model label */}
       <div
@@ -570,9 +582,50 @@ function AssistantMessageView({
         ))}
       </div>
 
-      {time && !isStreaming && (
-        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 3 }}>
-          <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{time}</span>
+      {!isStreaming && (textContent || time) && (
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          marginTop: 3, minHeight: 24,
+        }}>
+          {textContent ? (
+            <div
+              style={{
+                display: "flex", gap: 3,
+                opacity: hovered || actionsActive ? 1 : 0,
+                pointerEvents: hovered || actionsActive ? "auto" : "none",
+                transition: "opacity var(--dur-fast) var(--ease-out-warm)",
+              }}
+              onFocusCapture={() => setActionsActive(true)}
+              onBlurCapture={() => setActionsActive(false)}
+            >
+              <Tooltip content={t("messageView.copyMessage")}>
+                <button
+                  type="button"
+                  onClick={() => copyContent(textContent)}
+                  aria-label={t("messageView.copyMessage")}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 4,
+                    padding: "3px 8px", height: 24, minHeight: 24,
+                    background: "none", border: "none",
+                    borderRadius: "var(--radius-control)",
+                    color: copied ? "var(--accent)" : "var(--text-dim)",
+                    cursor: "pointer",
+                    fontSize: 11, fontWeight: 400,
+                    whiteSpace: "nowrap",
+                    transition: "color var(--dur-fast) var(--ease-out-warm)",
+                  }}
+                  onMouseEnter={(e) => { if (!copied) e.currentTarget.style.color = "var(--text)"; }}
+                  onMouseLeave={(e) => { if (!copied) e.currentTarget.style.color = "var(--text-dim)"; }}
+                >
+                  {copied ? <Check size={11} strokeWidth={1.8} /> : <Copy size={11} strokeWidth={1.8} />}
+                  {copied ? t("messageView.copied") : t("messageView.copy")}
+                </button>
+              </Tooltip>
+            </div>
+          ) : <div />}
+          {time && (
+            <span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: "auto" }}>{time}</span>
+          )}
         </div>
       )}
     </div>

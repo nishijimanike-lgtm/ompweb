@@ -3,7 +3,7 @@
 import { useI18n } from "@/lib/i18n";
 import { SubagentStatusIcon } from "./SubagentStatusIcon";
 import { formatCost, formatDuration, formatTokens, shortModel } from "@/lib/subagent-format";
-import { isRecord } from "./MessageView-tool-format";
+import { isRecord } from "@/lib/type-guards";
 
 type TaskResultRowLike = Record<string, unknown>;
 

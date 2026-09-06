@@ -773,13 +773,31 @@ export class AgentSessionWrapper {
     this.mcpListWaiter = waiter;
 
     try {
-      await this.proc.sendCommand({ type: "prompt", message: "/mcp list" });
+      // Bounded like the prompt ack: a child that accepts the frame but never
+      // acks it would otherwise suspend this call forever — the `finally` below
+      // would never run and the wrapper would keep reporting itself as busy
+      // (later calls fail with session_busy) until unrelated traffic cleared
+      // the wedge. The 15s output wait above stays a separate concern.
+      await this.proc.sendCommand({ type: "prompt", message: "/mcp list" }, PROMPT_ACK_TIMEOUT_MS);
       return await output;
     } catch (error) {
+      const expired = error instanceof RpcCommandTimeoutError;
       if (this.mcpListWaiter === waiter) {
         clearTimeout(waiter.timer);
         this.mcpListWaiter = null;
-        waiter.reject(error instanceof Error ? error : new Error(String(error)));
+        waiter.reject(
+          expired
+            ? new WebRpcError("The OMP session stopped responding and was reset.", "session_unresponsive")
+            : error instanceof Error
+              ? error
+              : new Error(String(error)),
+        );
+      }
+      if (expired) {
+        // Nothing on this child will ever resolve the waiter; recycle it like
+        // the prompt-ack timeout path so the next request gets a fresh child.
+        await this.destroyAndWait();
+        throw new WebRpcError("The OMP session stopped responding and was reset.", "session_unresponsive");
       }
       throw error;
     } finally {
@@ -928,6 +946,14 @@ export class AgentSessionWrapper {
         await proc.sendCommand({ type: "set_subagent_subscription", level: "events" }).catch(() => {});
         const state = await proc.sendCommand<RpcSessionState>({ type: "get_state" }, GET_STATE_TIMEOUT_MS);
         this.applyIdentity(state);
+        // Same fresh-spawn guard as startRpcSession: a sessionless wrapper
+        // restarts bare, and omp's startup resume handling could land it on the
+        // cwd's most recent session. An on-disk session file is the resume
+        // signal (fresh children report a not-yet-created path).
+        if (!resumable && this._sessionFile && existsSync(this._sessionFile)) {
+          await proc.sendCommand({ type: "new_session" });
+          this.applyIdentity(await proc.sendCommand<RpcSessionState>({ type: "get_state" }, GET_STATE_TIMEOUT_MS));
+        }
       } catch (error) {
         // Never leave the replacement running with nobody reading its frames.
         this.unsubscribeFrames?.();
@@ -1448,6 +1474,16 @@ export async function startRpcSession(
     created.start();
     try {
       await created.waitUntilReady();
+      // A fresh spawn (no --resume) must never land in an existing conversation:
+      // omp's startup resume handling can be config- or version-driven into
+      // continuing the cwd's most recent session, which would silently send the
+      // first prompt into an old .jsonl. The child's reported session file
+      // existing on disk is the resume signal — a genuinely fresh child reports
+      // a path it has not created yet (session files are written lazily on the
+      // first message), so this never fires for a real new session.
+      if (!sessionFile && created.sessionFile && existsSync(created.sessionFile)) {
+        await created.send({ type: "new_session" });
+      }
     } catch (error) {
       // Await the child's full exit before the `finally` releases the startup
       // lock: a fire-and-forget destroy() would let a retry spawn a second

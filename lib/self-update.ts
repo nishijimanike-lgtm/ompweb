@@ -19,7 +19,6 @@ import { dirname, join, posix, resolve, win32 } from "path";
 import { checkNpmUpdate, detectInstallMethod } from "./npm-update";
 import { checkOmpUpdate } from "./omp/updates";
 
-export const SELF_UPDATE_PACKAGE = "@kahme247/ompweb";
 const LEASE_MS = 30 * 60 * 1000;
 const TERMINAL_STATUS_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -481,15 +480,3 @@ export function acknowledgeSelfUpdate(attemptId: string, kind: Kind = "app"): { 
   pruneEmptyRoot(kind);
   return { acknowledged: true, attemptId };
 }
-
-// helpers exported for tests
-export function __test__reset() {
-  // for tests
-}
-export const _internal = {
-  isMissing,
-  isBusy,
-  secureDirectory,
-  atomicWrite,
-  cleanupStaleSelfUpdate,
-};

@@ -97,11 +97,6 @@ export function getModelsConfigPath(): string {
   return canonical;
 }
 
-/** User-level skills directory (~/.omp/agent/skills). */
-export function getUserSkillsDir(): string {
-  return path.join(getAgentDir(), "skills");
-}
-
 /** Best-effort canonicalization mirroring omp's resolveEquivalentPath: resolve
  * symlinks when the path exists, otherwise keep the resolved input. */
 function canonicalize(value: string): string {

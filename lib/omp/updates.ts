@@ -11,14 +11,8 @@ export interface OmpUpdateStatus {
 export const OMP_UPDATE_CHECK_TIMEOUT_MS = 15_000;
 export const OMP_UPDATE_CHECK_TTL_MS = 60 * 60 * 1000;
 
-export const OMP_UPDATE_INSTALL_TIMEOUT_MS = 5 * 60 * 1000;
-
-/** Run a bare `omp update` to install the latest OMP CLI. Install durability
- * (lease/status/retry) lives in lib/self-update.ts; this is the raw command. */
-export function runOmpUpdateInstall(timeoutMs = OMP_UPDATE_INSTALL_TIMEOUT_MS): Promise<string> {
-  return runOmpUpdate([], timeoutMs);
-}
-
+/** Run a raw `omp update [args]` subcommand. Install durability
+ * (lease/status/retry) lives in lib/self-update.ts. */
 export function runOmpUpdate(args: string[], timeoutMs = OMP_UPDATE_CHECK_TIMEOUT_MS): Promise<string> {
   const bin = resolveOmpBin();
   if (!bin) return Promise.reject(new Error("omp binary not found. Install oh-my-pi or set OMP_WEB_OMP_BIN."));

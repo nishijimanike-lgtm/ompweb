@@ -30,14 +30,6 @@ export function formatWindowsBatchArgs(args: string[]): string[] {
   return args.map((arg) => (arg.includes(" ") && !arg.startsWith('"') ? `"${arg}"` : arg));
 }
 
-/** Clear probes after an explicit `omp update` so the next request rechecks it. */
-export function invalidateOmpCliCache(): void {
-  cachedBin = null;
-  binMissAt = 0;
-  cachedVersion = null;
-  versionMissAt = 0;
-}
-
 function probeOmpBin(): string | null {
   const override = process.env.OMP_WEB_OMP_BIN;
   if (override) return existsSync(override) ? override : null;

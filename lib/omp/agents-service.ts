@@ -79,10 +79,6 @@ export function buildAgentScanRoots(cwd?: string): AgentScanRoot[] {
   return roots;
 }
 
-export function getAgentScanRootDirs(cwd?: string): string[] {
-  return buildAgentScanRoots(cwd).map((root) => root.dir);
-}
-
 function asStringArray(value: unknown, field: string): string[] | undefined {
   if (value === undefined) return undefined;
   if (Array.isArray(value) && value.every((item) => typeof item === "string")) return value.map((item) => item.trim()).filter(Boolean);

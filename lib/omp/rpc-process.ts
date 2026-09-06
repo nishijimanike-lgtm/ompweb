@@ -1,7 +1,7 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "child_process";
 import { createInterface } from "readline";
 import { sanitizeProjectCommandEnvironment } from "../project-command-env";
-import { resolveOmpBin } from "./omp-cli";
+import { formatWindowsBatchArgs, isWindowsBatch, resolveOmpBin } from "./omp-cli";
 import { encodeRpcFrames, RpcFrameDecoder, type RpcFrameRecord, type RpcProtocolVersion } from "./rpc-frame";
 
 /**
@@ -111,11 +111,14 @@ export class RpcProcess {
     const childEnv = sanitizeProjectCommandEnvironment({ ...process.env, ...options.env });
     if (options.env?.OMP_PROFILE === undefined) delete childEnv.OMP_PROFILE;
     if (options.env?.PI_PROFILE === undefined) delete childEnv.PI_PROFILE;
-    this.child = this.spawnProcess(bin, args, {
+    const isBatch = isWindowsBatch(bin);
+    const finalArgs = isBatch ? formatWindowsBatchArgs(args) : args;
+    this.child = this.spawnProcess(bin, finalArgs, {
       cwd: options.cwd,
       env: childEnv,
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
+      shell: isBatch,
       // On POSIX, omp launches grandchildren (LSP servers, extension subprocesses). Run the
       // child in its own process group so dispose() can SIGTERM/SIGKILL the whole
       // tree — otherwise a crashed omp would orphan its LSP children as zombies.

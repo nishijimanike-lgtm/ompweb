@@ -122,7 +122,7 @@ async function runManagerGate() {
     const bin = process.env.OMP_WEB_OMP_BIN || "omp";
     // Try resolve via packageDir/../?
     await new Promise((resolve) => {
-      const child = cp.spawn(bin, ["update"], { timeout: 5 * 60 * 1000, windowsHide: true, env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1" } });
+      const child = cp.spawn(bin, ["update"], { timeout: 5 * 60 * 1000, windowsHide: true, env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1" }, shell: process.platform === "win32" });
       child.on("close", () => resolve());
       child.on("error", () => resolve());
       setTimeout(() => { try { child.kill("SIGKILL"); } catch {} resolve(); }, 5 * 60 * 1000 + 1000);

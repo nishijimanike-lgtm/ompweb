@@ -5,7 +5,7 @@ import { tmpdir } from "os";
 import { basename, join } from "path";
 import { promisify } from "util";
 import { NextResponse } from "next/server";
-import { resolveOmpBin } from "@/lib/omp/omp-cli";
+import { formatWindowsBatchArgs, isWindowsBatch, resolveOmpBin } from "@/lib/omp/omp-cli";
 import { apiErrorResponse, resolveSessionPathOr404 } from "@/lib/api-utils";
 import { getContentDisposition } from "@/lib/content-disposition";
 
@@ -23,11 +23,15 @@ async function exportSession(filePath: string, outputPath: string): Promise<void
   if (!bin) {
     throw new Error("omp binary not found. Install oh-my-pi or set OMP_WEB_OMP_BIN.");
   }
-  await execFileAsync(bin, ["--export", filePath, outputPath], {
+  const isBatch = isWindowsBatch(bin);
+  const rawArgs = ["--export", filePath, outputPath];
+  const finalArgs = isBatch ? formatWindowsBatchArgs(rawArgs) : rawArgs;
+  await execFileAsync(bin, finalArgs, {
     cwd: tmpdir(),
     timeout: 60_000,
     maxBuffer: 4 * 1024 * 1024,
     windowsHide: true,
+    shell: isBatch,
   });
 }
 

@@ -1,6 +1,6 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
-import { resolveOmpBin } from "./omp/omp-cli";
+import { formatWindowsBatchArgs, isWindowsBatch, resolveOmpBin } from "./omp/omp-cli";
 import { asNumber, isRecord } from "./type-guards";
 import type {
   ProviderUsageReport,
@@ -162,10 +162,14 @@ export function parseProviderUsageOutput(output: string, query: UsageQuery = {},
 async function fetchProviderUsage(): Promise<string> {
   const bin = resolveOmpBin();
   if (!bin) throw new Error("omp binary not found. Install oh-my-pi or set OMP_WEB_OMP_BIN.");
-  const { stdout } = await execFileAsync(bin, ["usage", "--json", "--redact"], {
+  const isBatch = isWindowsBatch(bin);
+  const rawArgs = ["usage", "--json", "--redact"];
+  const finalArgs = isBatch ? formatWindowsBatchArgs(rawArgs) : rawArgs;
+  const { stdout } = await execFileAsync(bin, finalArgs, {
     timeout: USAGE_TIMEOUT_MS,
     maxBuffer: USAGE_MAX_BUFFER,
     windowsHide: true,
+    shell: isBatch,
   });
   return stdout;
 }

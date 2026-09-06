@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { execFile } from "child_process";
 import { existsSync, promises as fs } from "fs";
 import { basename, extname, join } from "path";
-import { resolveOmpBin } from "@/lib/omp/omp-cli";
+import { formatWindowsBatchArgs, isWindowsBatch, resolveOmpBin } from "@/lib/omp/omp-cli";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import type {
   PluginDiagnostic,
@@ -74,16 +74,19 @@ function runOmp(
   if (!bin) {
     return Promise.reject(new Error("omp binary not found. Install oh-my-pi or set OMP_WEB_OMP_BIN."));
   }
+  const isBatch = isWindowsBatch(bin);
+  const finalArgs = isBatch ? formatWindowsBatchArgs(args) : args;
   return new Promise((resolve, reject) => {
     execFile(
       bin,
-      args,
+      finalArgs,
       {
         cwd: opts.cwd,
         timeout: opts.timeout ?? 60_000,
         maxBuffer: 16 * 1024 * 1024,
         env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1" },
         windowsHide: true,
+        shell: isBatch,
       },
       (error, stdout, stderr) => {
         if (error) {

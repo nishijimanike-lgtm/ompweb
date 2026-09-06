@@ -14,11 +14,21 @@ let binMissAt = 0;
 let cachedVersion: string | null = null;
 let versionMissAt = 0;
 
-const BIN_NAME = process.platform === "win32" ? "omp.exe" : "omp";
+const BIN_NAMES = process.platform === "win32" ? ["omp.cmd", "omp.exe", "omp.bat"] : ["omp"];
 // Only successes are cached for the process lifetime. omp may be installed (or
 // PATH repaired) while the server runs; a permanently cached "not found" would
 // keep the UI reporting a missing binary until restart.
 const MISS_TTL_MS = 30_000;
+
+export function isWindowsBatch(bin?: string | null): boolean {
+  if (!bin || process.platform !== "win32") return false;
+  return /\.cmd$|\.bat$/i.test(bin);
+}
+
+export function formatWindowsBatchArgs(args: string[]): string[] {
+  if (process.platform !== "win32") return args;
+  return args.map((arg) => (arg.includes(" ") && !arg.startsWith('"') ? `"${arg}"` : arg));
+}
 
 /** Clear probes after an explicit `omp update` so the next request rechecks it. */
 export function invalidateOmpCliCache(): void {
@@ -33,24 +43,29 @@ function probeOmpBin(): string | null {
   if (override) return existsSync(override) ? override : null;
   for (const dir of (process.env.PATH ?? "").split(delimiter)) {
     if (!dir) continue;
-    const candidate = join(dir, BIN_NAME);
-    if (existsSync(candidate)) return candidate;
+    for (const name of BIN_NAMES) {
+      const candidate = join(dir, name);
+      if (existsSync(candidate)) return candidate;
+    }
   }
-  // GUI-launched processes often miss homebrew/bun dirs in PATH; probe the
+  // GUI-launched processes often miss npm/homebrew/bun dirs in PATH; probe the
   // usual install locations before giving up.
+  const appData = process.env.APPDATA || (process.platform === "win32" ? join(homedir(), "AppData", "Roaming") : "");
   const fallbackDirs = [
+    ...(appData ? [join(appData, "npm")] : []),
     "/opt/homebrew/bin",
     "/usr/local/bin",
     join(homedir(), ".bun", "bin"),
     join(homedir(), ".local", "bin"),
   ];
   for (const dir of fallbackDirs) {
-    const candidate = join(dir, BIN_NAME);
-    if (existsSync(candidate)) return candidate;
+    for (const name of BIN_NAMES) {
+      const candidate = join(dir, name);
+      if (existsSync(candidate)) return candidate;
+    }
   }
   return null;
 }
-
 /** Resolve the omp binary: OMP_WEB_OMP_BIN override, then PATH lookup. Returns
  * null when omp is not installed. A hit is cached for the process lifetime; a
  * miss is re-probed after MISS_TTL_MS. */
@@ -82,8 +97,10 @@ export async function getOmpVersion(): Promise<string | null> {
     return null;
   }
   try {
+    const isBatch = isWindowsBatch(bin);
+    const finalArgs = isBatch ? formatWindowsBatchArgs(["--version"]) : ["--version"];
     const output = await new Promise<string>((resolve, reject) => {
-      execFile(bin, ["--version"], { timeout: 10_000, windowsHide: true }, (error, stdout) => {
+      execFile(bin, finalArgs, { timeout: 10_000, windowsHide: true, shell: isBatch }, (error, stdout) => {
         if (error) reject(error);
         else resolve(stdout);
       });

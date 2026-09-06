@@ -36,7 +36,7 @@ export async function register(): Promise<void> {
       const bin = resolveOmpBin();
       const detail = error instanceof Error ? error.message : String(error);
       const hint = bin
-        ? `resolved ${bin}; repair with: omp update (or: bun install -g @oh-my-pi/pi-coding-agent@latest)`
+        ? `resolved ${bin}; repair with: omp update (or: npm install -g @oh-my-pi/pi-coding-agent@latest)`
         : "omp binary not found; install oh-my-pi or set OMP_WEB_OMP_BIN";
       console.warn(`[omp-web] omp utility warm-up failed (routes will retry on demand): ${detail} — ${hint}`);
     }

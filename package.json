@@ -49,7 +49,8 @@
     "tray:start": "node bin/omp-web-tray.js --start",
     "tray:status": "node bin/omp-web-tray.js --status",
     "prepack": "npm run build",
-    "release:check": "npm run typecheck && npm run lint && npm test && npm run build"
+    "release:check": "npm run typecheck && npm run lint && npm test && npm run build",
+    "sync:check": "git fetch upstream && git log --oneline HEAD..upstream/main"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

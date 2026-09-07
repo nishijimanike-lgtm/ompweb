@@ -231,6 +231,18 @@ class TrayApplication : IDisposable
     private void StartWebServer()
     {
         if (_childProcess != null && !_childProcess.HasExited) return;
+
+        // Pre-spawn port probe: if something is already listening (e.g. the headless
+        // omp-web service), adopt it instead of spawning a competing process.
+        if (IsPortInUse(_effectiveHostname, _effectivePort))
+        {
+            WriteLog($"Port {_effectivePort} already in use — adopting externally managed server.");
+            _state = "ExternallyManaged";
+            _childProcess = null;
+            UpdateTrayUI();
+            return;
+        }
+
         _state = "Starting";
         UpdateTrayUI();
         WriteLog($"Starting web server in {_effectiveMode} mode on {_effectiveHostname}:{_effectivePort}...");
@@ -322,6 +334,31 @@ class TrayApplication : IDisposable
             using var resp = req.GetResponse();
             return true;
         }
+        catch (WebException ex) when (ex.Response != null)
+        {
+            // Any HTTP response (401, 302, 404, …) means the server is up
+            return true;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>
+    /// Quick TCP connect probe — returns true if something is already listening on
+    /// <paramref name="hostname"/>:<paramref name="port"/> without waiting for HTTP.
+    /// </summary>
+    private static bool IsPortInUse(string hostname, int port)
+    {
+        try
+        {
+            var host = (hostname == "0.0.0.0" || hostname == "::" || string.IsNullOrWhiteSpace(hostname))
+                ? "127.0.0.1" : hostname;
+            using var client = new System.Net.Sockets.TcpClient();
+            // ConnectAsync + short wait keeps us non-blocking
+            var ar = client.BeginConnect(host, port, null, null);
+            var connected = ar.AsyncWaitHandle.WaitOne(500);
+            if (connected && client.Connected) { client.EndConnect(ar); return true; }
+            return false;
+        }
         catch { return false; }
     }
 
@@ -366,11 +403,12 @@ class TrayApplication : IDisposable
         if (_menuStatus == null) return;
         var statusText = _state switch
         {
-            "Running" => $"Running ({_effectivePort})",
-            "Starting" => $"Starting... ({_effectivePort})",
-            "Stopped" => "Stopped",
-            "Error" => "Error",
-            _ => _state
+            "Running"           => $"Running ({_effectivePort})",
+            "Starting"          => $"Starting... ({_effectivePort})",
+            "ExternallyManaged" => $"External ({_effectivePort})",
+            "Stopped"           => "Stopped",
+            "Error"             => "Error",
+            _                   => _state
         };
         _menuStatus.Text = $"  Status: {statusText}";
         var tip = $"omp-web ({statusText})";
@@ -379,13 +417,22 @@ class TrayApplication : IDisposable
 
         if (_menuToggle != null)
         {
-            if (_state == "Running" || _state == "Starting")
+            if (_state == "ExternallyManaged")
             {
+                // Tray does not own this process — disable start/stop/restart controls.
+                _menuToggle.Text = "Stop Server";
+                _menuToggle.Enabled = false;
+                if (_menuRestart != null) _menuRestart.Enabled = false;
+            }
+            else if (_state == "Running" || _state == "Starting")
+            {
+                _menuToggle.Enabled = true;
                 _menuToggle.Text = "Stop Server";
                 if (_menuRestart != null) _menuRestart.Enabled = true;
             }
             else
             {
+                _menuToggle.Enabled = true;
                 _menuToggle.Text = "Start Server";
                 if (_menuRestart != null) _menuRestart.Enabled = false;
             }
@@ -524,6 +571,39 @@ class TrayApplication : IDisposable
         _timer.Tick += (s, e) =>
         {
             if (_isExiting) return;
+
+            // --- Externally managed server (headless service owns the port) ---
+            // When _childProcess is null and we're in ExternallyManaged (or Running without
+            // a child), just do health-only monitoring — never spawn or auto-restart.
+            if (_state == "ExternallyManaged" || (_childProcess == null && _state == "Running"))
+            {
+                var healthy = TestServerHealth();
+                if (healthy)
+                {
+                    if (_state != "Running")
+                    {
+                        _state = "Running";
+                        WriteLog($"External server is healthy and responsive at {_serverUrl}");
+                        UpdateTrayUI();
+                        if (_openBrowser)
+                        {
+                            _openBrowser = false;
+                            try { Process.Start(new ProcessStartInfo(_serverUrl) { UseShellExecute = true }); } catch { }
+                        }
+                    }
+                }
+                else if (_state == "Running")
+                {
+                    // External server went away — go back to ExternallyManaged so we
+                    // keep showing tray without auto-restarting something we don't own.
+                    _state = "ExternallyManaged";
+                    WriteLog($"External server at {_serverUrl} is no longer responding.");
+                    UpdateTrayUI();
+                }
+                return;
+            }
+
+            // --- Child process we own ---
             if (_childProcess != null && _childProcess.HasExited)
             {
                 var code = _childProcess.ExitCode;

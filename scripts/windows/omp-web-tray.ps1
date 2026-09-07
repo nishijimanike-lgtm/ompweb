@@ -208,6 +208,17 @@ function Start-WebServer {
         return
     }
 
+    # Pre-spawn port probe: if something is already listening (e.g. the headless
+    # omp-web service started before us), adopt it instead of spawning a
+    # competing process that would immediately fail with EADDRINUSE.
+    if (Test-PortInUse -port $EffectivePort -hostname $EffectiveHostname) {
+        Write-ServiceLog "Port $EffectivePort already in use — adopting externally managed server."
+        $script:State = "ExternallyManaged"
+        $script:ChildProcess = $null
+        Update-TrayUI
+        return
+    }
+
     $script:State = "Starting"
     Update-TrayUI
     Write-ServiceLog "Starting web server in $EffectiveMode mode on $EffectiveHostname`:$EffectivePort..."
@@ -302,7 +313,8 @@ function Restart-WebServer {
 # -----------------------------------------------------------------------------
 function Test-ServerHealth {
     if (!$script:ChildProcess -or $script:ChildProcess.HasExited) {
-        return $false
+        # When externally managed we still probe via HTTP
+        if ($script:State -ne "ExternallyManaged") { return $false }
     }
     try {
         $probeUrl = if ($EffectiveHostname -eq "0.0.0.0" -or $EffectiveHostname -eq "::" -or [string]::IsNullOrWhiteSpace($EffectiveHostname)) {
@@ -325,6 +337,26 @@ function Test-ServerHealth {
         }
         return $false
     }
+}
+
+# Quick TCP connect probe — returns $true if something is already listening on the port
+# without waiting for an HTTP response. Used to detect a pre-existing headless server.
+function Test-PortInUse([int]$port, [string]$hostname) {
+    try {
+        $host = if ($hostname -eq "0.0.0.0" -or $hostname -eq "::" -or [string]::IsNullOrWhiteSpace($hostname)) {
+            "127.0.0.1"
+        } else { $hostname }
+        $client = New-Object System.Net.Sockets.TcpClient
+        $ar = $client.BeginConnect($host, $port, $null, $null)
+        $connected = $ar.AsyncWaitHandle.WaitOne(500)
+        if ($connected -and $client.Connected) {
+            $client.EndConnect($ar)
+            $client.Close()
+            return $true
+        }
+        $client.Close()
+        return $false
+    } catch { return $false }
 }
 
 function Check-AutostartShortcut {
@@ -526,11 +558,12 @@ $script:NotifyIcon.add_DoubleClick({
 
 function Update-TrayUI {
     $statusText = switch ($script:State) {
-        "Running"  { "Running ($EffectivePort)" }
-        "Starting" { "Starting... ($EffectivePort)" }
-        "Stopped"  { "Stopped" }
-        "Error"    { "Error" }
-        Default    { $script:State }
+        "Running"           { "Running ($EffectivePort)" }
+        "Starting"          { "Starting... ($EffectivePort)" }
+        "ExternallyManaged" { "External ($EffectivePort)" }
+        "Stopped"           { "Stopped" }
+        "Error"             { "Error" }
+        Default             { $script:State }
     }
 
     $script:MenuItemStatus.Text = "  Status: $statusText"
@@ -540,10 +573,17 @@ function Update-TrayUI {
     if ($tipText.Length -gt 63) { $tipText = $tipText.Substring(0, 63) }
     $script:NotifyIcon.Text = $tipText
 
-    if ($script:State -eq "Running" -or $script:State -eq "Starting") {
+    if ($script:State -eq "ExternallyManaged") {
+        # Tray does not own this process — disable start/stop/restart controls.
+        $script:MenuItemToggle.Text = "Stop Server"
+        $script:MenuItemToggle.Enabled = $false
+        $script:MenuItemRestart.Enabled = $false
+    } elseif ($script:State -eq "Running" -or $script:State -eq "Starting") {
+        $script:MenuItemToggle.Enabled = $true
         $script:MenuItemToggle.Text = "Stop Server"
         $script:MenuItemRestart.Enabled = $true
     } else {
+        $script:MenuItemToggle.Enabled = $true
         $script:MenuItemToggle.Text = "Start Server"
         $script:MenuItemRestart.Enabled = $false
     }
@@ -559,6 +599,32 @@ $script:Timer.Interval = 3000
 $script:Timer.add_Tick({
     if ($script:IsExiting) { return }
 
+    # ---- Externally managed server (headless service owns the port) ----
+    if ($script:State -eq "ExternallyManaged" -or ($script:State -eq "Running" -and !$script:ChildProcess)) {
+        $isHealthy = Test-ServerHealth
+        if ($isHealthy) {
+            if ($script:State -ne "Running") {
+                $script:State = "Running"
+                Write-ServiceLog "External server is healthy and responsive at $ServerUrl"
+                Update-TrayUI
+
+                if ($ShouldOpenBrowser) {
+                    $ShouldOpenBrowser = $false
+                    try {
+                        [System.Diagnostics.Process]::Start($ServerUrl) | Out-Null
+                    } catch { }
+                }
+            }
+        } elseif ($script:State -eq "Running") {
+            # External server went away — revert to ExternallyManaged (no auto-restart)
+            $script:State = "ExternallyManaged"
+            Write-ServiceLog "External server at $ServerUrl is no longer responding."
+            Update-TrayUI
+        }
+        return
+    }
+
+    # ---- Child process we own ----
     # Check child process state
     if ($script:ChildProcess -and $script:ChildProcess.HasExited) {
         $exitCode = $script:ChildProcess.ExitCode

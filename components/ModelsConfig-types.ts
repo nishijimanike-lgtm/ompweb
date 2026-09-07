@@ -55,6 +55,21 @@ export interface ModelEntry {
   compat?: Record<string, unknown>;
 }
 
+/** omp native model-list discovery configuration. Mirrors DiscoveryConfig in lib/omp/models-config.ts. */
+export interface DiscoveryConfig {
+  type?: string;
+  injectV1?: boolean;
+  timeoutMs?: number;
+}
+
+/** One model returned by the /api/models-config/discover route. */
+export interface DiscoveredModelEntry {
+  id: string;
+  name?: string;
+  contextWindow?: number;
+  reasoning?: boolean;
+}
+
 export interface ProviderEntry {
   baseUrl?: string;
   api?: string;
@@ -64,6 +79,7 @@ export interface ProviderEntry {
   compat?: Record<string, unknown>;
   models?: ModelEntry[];
   modelOverrides?: Record<string, unknown>;
+  discovery?: DiscoveryConfig;
 }
 
 export interface ModelsFileData {
@@ -110,6 +126,16 @@ export type RetrySettings = {
 };
 export const COMPOSER_MODELS_STORAGE_KEY = "omp-composer-models";
 export const NATIVE_MODEL_ROLES = ["default", "smol", "slow", "vision", "plan", "designer", "commit", "tiny", "task", "advisor"];
+// omp discovery types that can sit on a custom provider's `discovery` block.
+export const DISCOVERY_TYPES = [
+  "openai-models-list",
+  "ollama",
+  "llama.cpp",
+  "lm-studio",
+  "litellm",
+  "proxy",
+] as const;
+export type DiscoveryType = (typeof DISCOVERY_TYPES)[number];
 // omp's models.yml ApiSchema (config/models-config-schema.ts)
 export const API_OPTIONS = [
   "openai-completions",

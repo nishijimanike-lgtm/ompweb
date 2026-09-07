@@ -35,6 +35,16 @@ export interface ModelDefinition {
   [key: string]: unknown;
 }
 
+export interface DiscoveryConfig {
+  /** omp-native discovery type (openai-models-list, ollama, llama.cpp, lm-studio, litellm, proxy). */
+  type?: string;
+  /** For openai-models-list: whether to inject /v1 before /models when the path is missing it. */
+  injectV1?: boolean;
+  /** Max milliseconds to wait for the discovery probe. */
+  timeoutMs?: number;
+  [key: string]: unknown;
+}
+
 export interface ProviderConfig {
   baseUrl?: string;
   apiKey?: string;
@@ -44,12 +54,57 @@ export interface ProviderConfig {
   compat?: Record<string, unknown>;
   models?: ModelDefinition[];
   modelOverrides?: Record<string, unknown>;
+  /** omp native model-list discovery configuration. */
+  discovery?: DiscoveryConfig;
   [key: string]: unknown;
 }
 
 export interface ModelsFileConfig {
   providers?: Record<string, ProviderConfig>;
   [key: string]: unknown;
+}
+
+const VALID_DISCOVERY_TYPES = new Set([
+  "openai-models-list",
+  "ollama",
+  "llama.cpp",
+  "lm-studio",
+  "litellm",
+  "proxy",
+]);
+
+/** Validate a provider-level discovery block. */
+function validateDiscovery(providerName: string, provider: ProviderConfig): void {
+  const disc = provider.discovery;
+  if (disc === undefined || disc === null) return;
+  if (!isRecord(disc)) throw new Error(`Provider ${providerName}: "discovery" must be an object`);
+  const type = disc["type"];
+  if (type !== undefined) {
+    if (typeof type !== "string" || !VALID_DISCOVERY_TYPES.has(type)) {
+      throw new Error(
+        `Provider ${providerName}: discovery.type "${String(type)}" is not valid. ` +
+        `Must be one of: ${[...VALID_DISCOVERY_TYPES].join(", ")}.`,
+      );
+    }
+    // "proxy" discovery doesn't require a provider-level api; all others do.
+    if (type !== "proxy" && !provider.api) {
+      throw new Error(
+        `Provider ${providerName}: discovery.type "${type}" requires the provider-level "api" field to be set.`,
+      );
+    }
+    // injectV1 is only meaningful for openai-models-list
+    if (disc["injectV1"] !== undefined && type !== "openai-models-list") {
+      throw new Error(
+        `Provider ${providerName}: discovery.injectV1 is only supported for discovery.type "openai-models-list".`,
+      );
+    }
+  }
+  const timeout = disc["timeoutMs"];
+  if (timeout !== undefined) {
+    if (typeof timeout !== "number" || !Number.isFinite(timeout) || timeout <= 0) {
+      throw new Error(`Provider ${providerName}: discovery.timeoutMs must be a positive finite number`);
+    }
+  }
 }
 
 /** Mirrors validateProviderConfiguration(mode: "models-config") closely enough
@@ -61,6 +116,7 @@ export function validateModelsConfig(config: ModelsFileConfig): void {
   if (!isRecord(providers)) throw new Error('"providers" must be an object');
   for (const [providerName, provider] of Object.entries(providers)) {
     if (!isRecord(provider)) throw new Error(`Provider ${providerName}: must be an object`);
+    validateDiscovery(providerName, provider as ProviderConfig);
     const models = Array.isArray(provider.models) ? provider.models : [];
     if (models.length > 0) {
       if (!provider.baseUrl) {

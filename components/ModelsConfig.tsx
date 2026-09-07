@@ -20,10 +20,11 @@ import {
   ConfirmDialog,
   useFieldValidation,
 } from "@/components/ui/field";
-import { Plus, Trash2, RefreshCw, AlertCircle, Cpu, Settings, Sparkles, Check as CheckIcon, Layers, RotateCcw, SlidersHorizontal, BookOpen, Search } from "lucide-react";
+import { Plus, Trash2, RefreshCw, AlertCircle, Cpu, Settings, Sparkles, Check as CheckIcon, Layers, RotateCcw, SlidersHorizontal, BookOpen, Search, Download, Radar } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import { SettingsTabs, type SettingsTab } from "./SettingsTabs";
 import { ModelCatalogPicker } from "./ModelCatalogPicker";
+import { ModelDiscoveryPicker } from "./ModelDiscoveryPicker";
 import {
   API_OPTIONS,
   COMPOSER_MODELS_STORAGE_KEY,
@@ -45,6 +46,8 @@ import {
   type Selection,
   type ThinkingConfig,
   type ThinkingLevel,
+  DISCOVERY_TYPES,
+  type DiscoveredModelEntry,
   hoverAccent,
   hoverRow,
 } from "./ModelsConfig-types";
@@ -82,8 +85,35 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete }: {
   const { t } = useI18n();
   const [editingName, setEditingName] = useState(name);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [discoveryOpen, setDiscoveryOpen] = useState(false);
   useEffect(() => setEditingName(name), [name]);
   const set = <K extends keyof ProviderEntry>(k: K, v: ProviderEntry[K]) => onChange({ ...provider, [k]: v });
+
+  /** Update the provider's discovery block while preserving an existing type. */
+  const setDiscovery = (patch: Partial<NonNullable<ProviderEntry["discovery"]>>) => {
+    const current = provider.discovery;
+    const nextType = patch.type ?? current?.type;
+    const merged: Record<string, unknown> = { ...(current ?? {}), ...patch, type: nextType };
+    // injectV1 only applies to openai-models-list; drop it on a type change so
+    // stale fields never trip omp's schema validation on save.
+    if (nextType && nextType !== "openai-models-list") delete merged["injectV1"];
+    // Drop the block entirely when the user picks the "off" placeholder.
+    set("discovery", nextType ? (merged as ProviderEntry["discovery"]) : undefined);
+  };
+
+  const importDiscovered = (models: DiscoveredModelEntry[]) => {
+    const existing = new Set((provider.models ?? []).map((m) => m.id));
+    const fresh = models.filter((m) => !existing.has(m.id));
+    if (fresh.length === 0) {
+      setDiscoveryOpen(false);
+      return;
+    }
+    const entries = (provider.models ?? []).concat(
+      fresh.map((m) => ({ id: m.id, name: m.name ?? m.id })),
+    );
+    onChange({ ...provider, models: entries });
+    setDiscoveryOpen(false);
+  };
 
   useEffect(() => {
     if (!provider.api) onChange({ ...provider, api: "openai-completions" });
@@ -271,6 +301,77 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete }: {
         </FormField>
       </FieldGroup>
 
+      {/* Model discovery */}
+      <FieldGroup
+        label={
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <Radar size={12} aria-hidden="true" /> {t("modelsConfig.discoverySection")}
+          </span>
+        }
+      >
+        <FormField label={t("modelsConfig.discoveryType")}>
+          <FormSelect
+            value={provider.discovery?.type ?? ""}
+            onChange={(v) => setDiscovery({ type: v })}
+            options={DISCOVERY_TYPES}
+            placeholder={t("modelsConfig.discoveryTypeNone")}
+          />
+        </FormField>
+
+        {provider.discovery?.type === "openai-models-list" && (
+          <FormCheck
+            label={t("modelsConfig.discoveryInjectV1")}
+            checked={provider.discovery?.injectV1 !== false}
+            onChange={(v) => setDiscovery({ injectV1: v ? undefined : false })}
+          />
+        )}
+
+        {provider.discovery?.type && (
+          <FormField label={t("modelsConfig.discoveryTimeoutMs")}>
+            <NumInput
+              value={provider.discovery?.timeoutMs != null ? String(provider.discovery.timeoutMs) : ""}
+              onChange={(raw) => {
+                const trimmed = raw.trim();
+                const n = trimmed ? Number(trimmed) : NaN;
+                if (!trimmed) setDiscovery({ timeoutMs: undefined });
+                else if (Number.isFinite(n) && n > 0) setDiscovery({ timeoutMs: Math.round(n) });
+              }}
+              placeholder={t("modelsConfig.discoveryTimeoutPlaceholder")}
+            />
+          </FormField>
+        )}
+
+        <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.55 }}>
+          {t("modelsConfig.discoveryHint")}
+        </p>
+
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, marginTop: 2 }}>
+          <p style={{ margin: "0 0 8px", fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.55 }}>
+            {t("modelsConfig.importAvailableModelsDesc")}
+          </p>
+          <button
+            type="button"
+            disabled={!provider.baseUrl}
+            onClick={() => setDiscoveryOpen(true)}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "7px 14px",
+              background: "var(--accent)",
+              border: "none", borderRadius: "var(--radius-control)",
+              color: "var(--on-accent)", cursor: provider.baseUrl ? "pointer" : "not-allowed",
+              fontSize: 12, fontWeight: 600, opacity: provider.baseUrl ? 1 : 0.5,
+            }}
+          >
+            <Download size={13} aria-hidden="true" /> {t("modelsConfig.importAvailableModels")}
+          </button>
+          {!provider.baseUrl && (
+            <p style={{ margin: "6px 0 0", fontSize: 11, color: "var(--text-dim)", lineHeight: 1.5 }}>
+              {t("modelsConfig.discoveryBaseUrlFirst")}
+            </p>
+          )}
+        </div>
+      </FieldGroup>
+
       {/* Danger Zone */}
       <section style={{ padding: "14px 16px", border: "1px solid color-mix(in srgb, var(--status-error) 25%, transparent)", borderRadius: "var(--radius-card)", background: "var(--bg-panel)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
         <div>
@@ -311,6 +412,15 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete }: {
           setDeleteOpen(false);
           onDelete();
         }}
+      />
+
+      <ModelDiscoveryPicker
+        open={discoveryOpen}
+        providerName={name}
+        provider={provider}
+        existingIds={new Set((provider.models ?? []).map((m) => m.id))}
+        onAdd={importDiscovered}
+        onClose={() => setDiscoveryOpen(false)}
       />
     </div>
   );

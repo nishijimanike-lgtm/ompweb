@@ -39,6 +39,30 @@ function Log-Message([string]$msg) {
 # -----------------------------------------------------------------------------
 # 1. Generate Multi-Size ICO if missing or requested
 # -----------------------------------------------------------------------------
+# Stepwise downscale (halving) then land on the target size. Direct 512->16
+# collapses thin glyph strokes into a muddy blur, so we walk down in steps.
+function Get-StepDownscaled([System.Drawing.Image]$source, [int]$targetSize) {
+    $bmp = New-Object System.Drawing.Bitmap $source.Width, $source.Height, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.DrawImage($source, 0, 0, $source.Width, $source.Height)
+    $g.Dispose()
+    while ($targetSize -lt $bmp.Width) {
+        $next = [Math]::Max($targetSize, [int][Math]::Ceiling($bmp.Width / 2.0))
+        $small = New-Object System.Drawing.Bitmap $next, $next, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+        $sg = [System.Drawing.Graphics]::FromImage($small)
+        $sg.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $sg.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+        $sg.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+        $sg.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+        $sg.Clear([System.Drawing.Color]::Transparent)
+        $sg.DrawImage($bmp, 0, 0, $next, $next)
+        $sg.Dispose()
+        $bmp.Dispose()
+        $bmp = $small
+    }
+    return $bmp
+}
+
 function Ensure-IconFile {
     if (Test-Path $IcoPath) {
         return
@@ -51,19 +75,11 @@ function Ensure-IconFile {
     try {
         Add-Type -AssemblyName System.Drawing
         $srcBmp = [System.Drawing.Bitmap]::FromFile($PngPath)
-        $sizes = @(16, 32, 48, 64, 128, 256)
+        $sizes = @(16, 20, 24, 32, 40, 48, 64, 128, 256)
         $images = @()
 
         foreach ($size in $sizes) {
-            $resized = New-Object System.Drawing.Bitmap $size, $size, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
-            $g = [System.Drawing.Graphics]::FromImage($resized)
-            $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-            $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
-            $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-            $g.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
-            $g.Clear([System.Drawing.Color]::Transparent)
-            $g.DrawImage($srcBmp, 0, 0, $size, $size)
-            $g.Dispose()
+            $resized = Get-StepDownscaled $srcBmp $size
 
             $ms = New-Object System.IO.MemoryStream
             $resized.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)

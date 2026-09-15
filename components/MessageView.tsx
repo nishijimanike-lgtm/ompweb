@@ -1,8 +1,9 @@
 "use client";
 
-import { memo, useState, useRef, useEffect, useMemo, useCallback, type ComponentProps } from "react";
-import { Copy, Check, GitFork, CornerUpLeft, ChevronRight, ChevronDown, Brain, EyeOff, CircleAlert, CircleSlash, LoaderCircle } from "lucide-react";
+import { memo, useState, useId, useRef, useEffect, useMemo, useCallback, type ComponentProps } from "react";
+import { Copy, Check, GitFork, CornerUpLeft, ChevronRight, ChevronDown, Brain, EyeOff, CircleAlert, CircleSlash, LoaderCircle, FileText, Search, FileEdit, Terminal, CheckSquare, Bot, Code2, Globe, MessagesSquare, Wrench } from "lucide-react";
 import { MarkdownBody } from "./MarkdownBody";
+import { MessageCopyActions } from "./MessageCopyActions";
 import { ClickableImage } from "./ImageLightbox";
 import { translate, useI18n, type Locale } from "@/lib/i18n";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
@@ -11,8 +12,22 @@ import { Tooltip, Collapsible, CollapsibleTrigger } from "./ui/primitives";
 import { useCopyFeedback } from "@/hooks/useCopyFeedback";
 import { formatCompactNumber } from "@/lib/format";
 import { TaskResultPanel } from "./MessageView-task-panel";
+import { HubResultPanel } from "./MessageView-hub-panel";
 import { getResultDiff, PairedDiffResult, PairedResult } from "./MessageView-diff-view";
-import { getToolPreview, formatToolCommand, formatToolOutput, getToolResultMeta } from "./MessageView-tool-format";
+import {
+  getToolPreview,
+  formatToolCommand,
+  formatToolOutput,
+  getToolResultMeta,
+  getToolCategory,
+  getTodoSummary,
+  getHubJobs,
+  getHubJobsHeader,
+  getHubSendSummary,
+  summarizeToolCallGroup,
+  getSemanticToolLabel,
+  type ToolCategory,
+} from "./MessageView-tool-format";
 export { TaskResultPanel } from "./MessageView-task-panel";
 import type {
   AgentMessage,
@@ -28,6 +43,76 @@ import type {
   ThinkingContent,
 } from "@/lib/types";
 
+function ToolCategoryIcon({
+  category,
+  size = 12,
+  className,
+  style,
+}: {
+  category: ToolCategory;
+  size?: number;
+  className?: string;
+  style?: React.CSSProperties;
+}) {
+  switch (category) {
+    case "read":
+      return <FileText size={size} strokeWidth={1.8} className={className} style={{ color: "var(--status-renamed, #7CA8FF)", ...style }} />;
+    case "search":
+      return <Search size={size} strokeWidth={1.8} className={className} style={{ color: "var(--accent, #EC5BAB)", ...style }} />;
+    case "edit":
+      return <FileEdit size={size} strokeWidth={1.8} className={className} style={{ color: "var(--status-modified, #E0B24D)", ...style }} />;
+    case "terminal":
+      return <Terminal size={size} strokeWidth={1.8} className={className} style={{ color: "var(--status-success, #7DD8A8)", ...style }} />;
+    case "todo":
+      return <CheckSquare size={size} strokeWidth={1.8} className={className} style={{ color: "var(--accent, #EC5BAB)", ...style }} />;
+    case "task":
+      return <Bot size={size} strokeWidth={1.8} className={className} style={{ color: "var(--accent-2, #7DD7E8)", ...style }} />;
+    case "hub":
+      return <MessagesSquare size={size} strokeWidth={1.8} className={className} style={{ color: "var(--accent-2, #7DD7E8)", ...style }} />;
+    case "code":
+      return <Code2 size={size} strokeWidth={1.8} className={className} style={{ color: "var(--accent, #EC5BAB)", ...style }} />;
+    case "web":
+      return <Globe size={size} strokeWidth={1.8} className={className} style={{ color: "var(--accent-2, #7DD7E8)", ...style }} />;
+    default:
+      return <Wrench size={size} strokeWidth={1.8} className={className} style={{ color: "var(--text-muted)", ...style }} />;
+  }
+}
+
+type GroupedBlockItem =
+  | { type: "single"; item: { block: AssistantContentBlock; originalIndex: number } }
+  | { type: "toolGroup"; items: Array<{ block: ToolCallContent; originalIndex: number }> };
+
+function groupAdjacentBlocks(items: Array<{ block: AssistantContentBlock; originalIndex: number }>): GroupedBlockItem[] {
+  const result: GroupedBlockItem[] = [];
+  let currentGroup: Array<{ block: ToolCallContent; originalIndex: number }> | null = null;
+
+  for (const item of items) {
+    if (item.block.type === "toolCall") {
+      if (!currentGroup) currentGroup = [];
+      currentGroup.push({ block: item.block as ToolCallContent, originalIndex: item.originalIndex });
+    } else {
+      if (currentGroup) {
+        if (currentGroup.length === 1) {
+          result.push({ type: "single", item: currentGroup[0] });
+        } else {
+          result.push({ type: "toolGroup", items: currentGroup });
+        }
+        currentGroup = null;
+      }
+      result.push({ type: "single", item });
+    }
+  }
+
+  if (currentGroup) {
+    if (currentGroup.length === 1) {
+      result.push({ type: "single", item: currentGroup[0] });
+    } else {
+      result.push({ type: "toolGroup", items: currentGroup });
+    }
+  }
+
+  return result;
+}
 
 const MAX_THINKING_CACHE_ENTRIES = 100;
 const thinkingContentCache = new Map<string, Promise<string>>();
@@ -219,9 +304,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   onEditContent?: (content: string) => void;
 }) {
   const { t, locale } = useI18n();
-  const [hovered, setHovered] = useState(false);
-  const [actionsActive, setActionsActive] = useState(false);
-  const { copied, copy: copyContent } = useCopyFeedback();
+  const bodyRef = useRef<HTMLDivElement>(null);
 
   const content =
     typeof message.content === "string"
@@ -243,12 +326,13 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   return (
     <div
       style={{ marginBottom: 18, display: "flex", flexDirection: "column", alignItems: "flex-end", paddingRight: 6 }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
     >
       <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", maxWidth: "85%", minWidth: 0 }}>
         <div
           className="chat-message-card"
+          ref={bodyRef}
+          data-selection-scope="message"
+          tabIndex={-1}
           style={{
             maxWidth: "100%",
             minWidth: 0,
@@ -282,59 +366,21 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
               })}
             </div>
           )}
-          {content && <SafeMarkdownBody className="markdown-user-message" cwd={cwd} onOpenFile={onOpenFile}>{content}</SafeMarkdownBody>}
+          {content && <div data-message-text><SafeMarkdownBody className="markdown-user-message" cwd={cwd} onOpenFile={onOpenFile}>{content}</SafeMarkdownBody></div>}
         </div>
 
         {/* Bottom row: action buttons + timestamp — inside the bubble's column,
             spanning its width, so the timestamp aligns with its right edge. */}
-        {(time || canFork || canNavigate) && (
           <div style={{
-            display: "flex", alignItems: "center", justifyContent: "flex-end",
+            display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end",
             gap: 6, marginTop: 3, width: "100%",
           }}>
-          <div
-            style={{
-              display: "flex", gap: 3,
-              opacity: hovered || actionsActive ? 1 : 0,
-              pointerEvents: hovered || actionsActive ? "auto" : "none",
-              transition: "opacity var(--dur-fast) var(--ease-out-warm)",
-            }}
-            onFocusCapture={() => setActionsActive(true)}
-            onBlurCapture={() => setActionsActive(false)}
-          >
-            <Tooltip content={t("messageView.copyMessage")}>
-              <button
-                onClick={() => copyContent(content)}
-                aria-label={t("messageView.copyMessage")}
-                style={{
-                  display: "flex", alignItems: "center", gap: 4,
-                  padding: "3px 8px", height: 24, minHeight: 24,
-                  background: "none", border: "none",
-                  borderRadius: 5,
-                  color: copied ? "var(--accent)" : "var(--text-dim)",
-                  cursor: "pointer",
-                  fontSize: 11, fontWeight: 400,
-                  whiteSpace: "nowrap",
-                  transition: "color var(--dur-fast) var(--ease-out-warm)",
-                }}
-                onMouseEnter={(e) => { if (!copied) e.currentTarget.style.color = "var(--accent)"; }}
-                onMouseLeave={(e) => { if (!copied) e.currentTarget.style.color = "var(--text-dim)"; }}
-              >
-                {copied ? <Check size={11} strokeWidth={1.8} /> : <Copy size={11} strokeWidth={1.8} />}
-                {copied ? t("messageView.copied") : t("messageView.copy")}
-              </button>
-            </Tooltip>
-          </div>
+          <MessageCopyActions texts={[content]} bodyRef={bodyRef} />
           {(canFork || canNavigate) && (
             <div
               style={{
-                display: "flex", gap: 3,
-                opacity: (hovered || actionsActive || forking) ? 1 : 0,
-                pointerEvents: (hovered || actionsActive || forking) ? "auto" : "none",
-                transition: "opacity var(--dur-fast) var(--ease-out-warm)",
+                display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: 3,
               }}
-              onFocusCapture={() => setActionsActive(true)}
-              onBlurCapture={() => setActionsActive(false)}
             >
               {canNavigate && (
                 <Tooltip content={t("messageView.editFromHereTitle")}>
@@ -389,11 +435,25 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
           )}
           {time && <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{time}</span>}
           </div>
-        )}
       </div>
     </div>
   );
 }
+export function isInterruptedMessage(errorMessage?: string | null, stopReason?: string): boolean {
+  if (stopReason === "aborted") return true;
+  if (!errorMessage) return false;
+  const lower = errorMessage.toLowerCase().trim();
+  return (
+    lower === "interrupted by user" ||
+    lower === "interrupted" ||
+    lower === "generation stopped by user" ||
+    lower.startsWith("interrupted by user") ||
+    lower.startsWith("interrupted:") ||
+    lower === "aborted" ||
+    lower === "request aborted"
+  );
+}
+
 function AssistantMessageView({
   message,
   isStreaming,
@@ -423,11 +483,15 @@ function AssistantMessageView({
 }) {
   const { t, locale } = useI18n();
   const time = showTimestamp ? formatTime(message.timestamp, locale) : null;
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const texts = (message.content ?? []).filter((block): block is TextContent => block.type === "text").map((block) => block.text);
   const blockItems = (message.content ?? [])
     .map((block, originalIndex) => ({ block, originalIndex }))
     .filter(({ block }) => !isEmptyThinkingBlock(block, { isStreaming }));
   const blocks = blockItems.map(({ block }) => block);
   const hasActivityBlocks = blocks.some((block) => block.type === "thinking" || block.type === "toolCall");
+  const errorMessage = message.errorMessage?.trim() || null;
+  const isInterrupted = isInterruptedMessage(errorMessage, message.stopReason);
   const blockItemsRef = useRef(blockItems);
   blockItemsRef.current = blockItems;
 
@@ -516,7 +580,7 @@ function AssistantMessageView({
     return () => clearInterval(id);
   }, [isStreaming]);
 
-  if (blocks.length === 0 && !isStreaming) return null;
+  if (blocks.length === 0 && !isStreaming && !errorMessage) return null;
 
   return (
     <div
@@ -576,56 +640,90 @@ function AssistantMessageView({
         })()}
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-        {blockItems.map(({ block, originalIndex }) => (
-          <BlockView key={`${entryId ?? "stream"}-${originalIndex}`} block={block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} cwd={cwd} onOpenFile={onOpenFile} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} toolCallsDefaultCollapsed={toolCallsDefaultCollapsed} />
-        ))}
+      <div ref={bodyRef} data-selection-scope="message" tabIndex={-1} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+        {groupAdjacentBlocks(blockItems).map((group, groupIdx) => {
+          if (group.type === "single") {
+            const { block, originalIndex } = group.item;
+            return (
+              <BlockView
+                key={`${entryId ?? "stream"}-${originalIndex}`}
+                block={block}
+                toolResults={toolResults}
+                isStreaming={isStreaming}
+                streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)}
+                toolCallDurations={toolCallDurations}
+                cwd={cwd}
+                onOpenFile={onOpenFile}
+                sessionId={sessionId}
+                entryId={entryId}
+                blockIndex={originalIndex}
+                toolCallsDefaultCollapsed={toolCallsDefaultCollapsed}
+              />
+            );
+          }
+          return (
+            <ToolCallGroupBlock
+              key={`${entryId ?? "stream"}-group-${groupIdx}`}
+              items={group.items}
+              toolResults={toolResults}
+              isStreaming={isStreaming}
+              toolCallDurations={toolCallDurations}
+              onOpenFile={onOpenFile}
+              toolCallsDefaultCollapsed={toolCallsDefaultCollapsed}
+            />
+          );
+        })}
+        {errorMessage && (
+          isInterrupted ? (
+            <div
+              role="status"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "6px 9px",
+                border: "1px solid color-mix(in srgb, var(--text-muted) 25%, var(--border))",
+                borderRadius: "var(--radius-control)",
+                background: "color-mix(in srgb, var(--text-muted) 6%, var(--bg-panel))",
+                color: "var(--text-muted)",
+                fontSize: 12,
+                lineHeight: 1.45,
+              }}
+            >
+              <CircleSlash size={14} strokeWidth={1.8} aria-hidden="true" style={{ flexShrink: 0 }} />
+              <span>{t("messageView.interruptedByUser")}</span>
+            </div>
+          ) : (
+            <div
+              role="alert"
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 6,
+                padding: "7px 9px",
+                border: "1px solid color-mix(in srgb, var(--status-error) 35%, var(--border))",
+                borderRadius: "var(--radius-control)",
+                background: "color-mix(in srgb, var(--status-error) 7%, var(--bg-panel))",
+                color: "var(--status-error)",
+                fontSize: 12,
+                lineHeight: 1.45,
+                whiteSpace: "pre-wrap",
+                overflowWrap: "anywhere",
+              }}
+            >
+              <CircleAlert size={14} strokeWidth={1.8} aria-hidden="true" style={{ flexShrink: 0, marginTop: 1 }} />
+              <span>{t(errorMessage)}</span>
+            </div>
+          )
+        )}
       </div>
 
-      {!isStreaming && (textContent || time) && (
-        <div style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          marginTop: 3, minHeight: 24,
-        }}>
-          {textContent ? (
-            <div
-              style={{
-                display: "flex", gap: 3,
-                opacity: hovered || actionsActive ? 1 : 0,
-                pointerEvents: hovered || actionsActive ? "auto" : "none",
-                transition: "opacity var(--dur-fast) var(--ease-out-warm)",
-              }}
-              onFocusCapture={() => setActionsActive(true)}
-              onBlurCapture={() => setActionsActive(false)}
-            >
-              <Tooltip content={t("messageView.copyMessage")}>
-                <button
-                  type="button"
-                  onClick={() => copyContent(textContent)}
-                  aria-label={t("messageView.copyMessage")}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 4,
-                    padding: "3px 8px", height: 24, minHeight: 24,
-                    background: "none", border: "none",
-                    borderRadius: "var(--radius-control)",
-                    color: copied ? "var(--accent)" : "var(--text-dim)",
-                    cursor: "pointer",
-                    fontSize: 11, fontWeight: 400,
-                    whiteSpace: "nowrap",
-                    transition: "color var(--dur-fast) var(--ease-out-warm)",
-                  }}
-                  onMouseEnter={(e) => { if (!copied) e.currentTarget.style.color = "var(--text)"; }}
-                  onMouseLeave={(e) => { if (!copied) e.currentTarget.style.color = "var(--text-dim)"; }}
-                >
-                  {copied ? <Check size={11} strokeWidth={1.8} /> : <Copy size={11} strokeWidth={1.8} />}
-                  {copied ? t("messageView.copied") : t("messageView.copy")}
-                </button>
-              </Tooltip>
-            </div>
-          ) : <div />}
-          {time && (
-            <span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: "auto" }}>{time}</span>
-          )}
+      {!isStreaming && (texts.some((text) => text.trim()) || time) && (
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 6, marginTop: 3 }}>
+          <MessageCopyActions texts={texts} bodyRef={bodyRef} />
+          {time && <span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: "auto" }}>{time}</span>}
+        </div>
+      )}
         </div>
       )}
     </div>
@@ -643,7 +741,7 @@ function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCal
     const tc = block as ToolCallContent;
     const result = toolResults?.get(tc.toolCallId);
     const duration = toolCallDurations?.get(tc.toolCallId);
-    return <ToolCallBlock block={tc} result={result} duration={duration} isStreaming={isStreaming} defaultCollapsed={toolCallsDefaultCollapsed} />;
+    return <ToolCallBlock block={tc} result={result} duration={duration} isStreaming={isStreaming} defaultCollapsed={toolCallsDefaultCollapsed} onOpenFile={onOpenFile} />;
   }
   return null;
 }
@@ -654,7 +752,7 @@ function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCal
 // skip their ReactMarkdown re-parse and only the actively growing block
 // re-renders per frame.
 const TextBlock = memo(function TextBlock({ block, isStreaming, cwd, onOpenFile }: { block: TextContent; isStreaming?: boolean; cwd?: string; onOpenFile?: (filePath: string) => void }) {
-  return <SafeMarkdownBody isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile}>{block.text}</SafeMarkdownBody>;
+  return <div data-message-text><SafeMarkdownBody isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile}>{block.text}</SafeMarkdownBody></div>;
 }, (prev, next) => (
   prev.block.text === next.block.text
   && prev.isStreaming === next.isStreaming
@@ -704,7 +802,7 @@ const ThinkingBlock = memo(function ThinkingBlock({ block, duration, sessionId, 
             <span className="activity-row-duration">{t("messageView.durationSeconds", { seconds: duration })}</span>
           )}
           <ChevronDown
-            size={11}
+            size={12}
             strokeWidth={1.8}
             aria-hidden
             style={{
@@ -715,20 +813,11 @@ const ThinkingBlock = memo(function ThinkingBlock({ block, duration, sessionId, 
           />
         </CollapsibleTrigger>
         {expanded && (
-          <div className="tool-call-details">
+          <div className="thinking-details">
             <div
-              className={`tool-call-output${error ? " tool-call-output-error" : ""}`}
-              style={{
-                whiteSpace: "pre-wrap",
-                fontFamily: "var(--font-mono)",
-                fontSize: 10.5,
-                lineHeight: 1.45,
-                color: error ? "var(--status-error)" : "var(--text-muted)",
-              }}
+              className={`thinking-output${error ? " thinking-output-error" : ""}`}
             >
-              <pre className="tool-call-output-text">
-                {loading ? t("messageView.loadingThinking") : error ?? (block.deferred ? content : block.thinking)}
-              </pre>
+              {loading ? t("messageView.loadingThinking") : error ?? (block.deferred ? content : block.thinking)}
             </div>
           </div>
         )}
@@ -756,9 +845,41 @@ function inputsShallowEqual(a: unknown, b: unknown): boolean {
   return keysA.every((k) => (a as Record<string, unknown>)[k] === (b as Record<string, unknown>)[k]);
 }
 
-const ToolCallBlock = memo(function ToolCallBlock({ block, result, duration, isStreaming, defaultCollapsed = true }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; isStreaming?: boolean; defaultCollapsed?: boolean }) {
+const ToolCallBlock = memo(function ToolCallBlock({
+  block,
+  result,
+  duration,
+  isStreaming,
+  defaultCollapsed = true,
+  inGroup = false,
+  onOpenFile,
+}: {
+  block: ToolCallContent;
+  result?: ToolResultMessage;
+  duration?: number;
+  isStreaming?: boolean;
+  defaultCollapsed?: boolean;
+  cwd?: string;
+  inGroup?: boolean;
+  onOpenFile?: (filePath: string) => void;
+}) {
   const { t } = useI18n();
-  const [expanded, setExpanded] = useState(Boolean(isStreaming) && !defaultCollapsed);
+  // `partial` results are omp's live snapshots for a tool that is still
+  // executing (see lib/types.ts); the committed toolResult replaces them.
+  const isRunning = result?.partial === true;
+  // A running tool opens its row when the interface keeps tool calls expanded
+  // ("Keep tool calls collapsed" off) so its output is watchable live.
+  const [expanded, setExpanded] = useState(Boolean(isStreaming || isRunning) && !defaultCollapsed);
+  const [inputExpanded, setInputExpanded] = useState(false);
+  const inputId = useId();
+  // The row can also mount while the tool is idle and start running later (the
+  // assistant message commits before `tool_execution_start`). It is never
+  // auto-collapsed: the output stays where the user was reading it.
+  const wasRunningRef = useRef(false);
+  useEffect(() => {
+    if (isRunning && !wasRunningRef.current && !defaultCollapsed) setExpanded(true);
+    wasRunningRef.current = isRunning;
+  }, [isRunning, defaultCollapsed]);
   const resultText = result
     ? (typeof result.content === "string"
         ? result.content
@@ -775,31 +896,84 @@ const ToolCallBlock = memo(function ToolCallBlock({ block, result, duration, isS
   const resultDiff = expanded && result && !isError ? getResultDiff(result) : null;
   const resultMeta = getToolResultMeta(result);
   const command = formatToolCommand(block);
+  const category = getToolCategory(block.toolName);
+  const semantic = getSemanticToolLabel(block);
+  const todoSummary = category === "todo" ? getTodoSummary(block.input) : null;
+  const preview = getToolPreview(block);
+  // Outgoing steering (`hub` op send) and the job roster (`hub` op jobs) get
+  // the TUI's row titles: `IRC → X injected` and `waiting on N jobs`.
+  const hubSend = category === "hub" ? getHubSendSummary(block.input) : null;
+  const hubJobs = category === "hub" ? getHubJobs(result?.details) : null;
+  const hubReceiptOutcome = (() => {
+    const receipts = (result?.details as { receipts?: Array<{ outcome?: unknown }> } | undefined)?.receipts;
+    if (!Array.isArray(receipts) || receipts.length === 0) return null;
+    const outcomes = receipts.map((receipt) => (typeof receipt?.outcome === "string" ? receipt.outcome : null));
+    if (outcomes.some((outcome) => outcome === null || outcome !== outcomes[0])) return null;
+    return outcomes[0];
+  })();
+  const hubTool = hubSend
+    ? `IRC → ${hubSend.to.join(", ")}${hubReceiptOutcome ? ` ${hubReceiptOutcome}` : ""}`
+    : hubJobs
+      ? getHubJobsHeader(hubJobs)
+      : null;
+  const hubPreview = hubSend
+    ? (hubSend.snippet || hubSend.to.join(", "))
+    : hubJobs
+      ? hubJobs.map((job) => job.label).join(" · ")
+      : null;
+
+  const cleanFilePath = semantic.isFile && typeof block.input === "object" && block.input && "path" in block.input
+    ? String((block.input as Record<string, unknown>).path).split(":")[0]
+    : null;
 
   return (
-    <div className="activity-row" data-activity-operation="true">
+    <div className={inGroup ? "activity-group-item" : "activity-row"} data-activity-operation="true">
       <Collapsible open={expanded} onOpenChange={setExpanded}>
-        <CollapsibleTrigger className="activity-row-trigger">
+        <CollapsibleTrigger className={inGroup ? "activity-group-item-trigger" : "activity-row-trigger"}>
           <span className={`activity-row-indicator${isError ? " activity-row-indicator-error" : ""}`} aria-hidden>
             {isError ? (
               <CircleAlert size={12} strokeWidth={1.8} />
-            ) : result ? (
+            ) : result && !isRunning ? (
               <Check size={12} strokeWidth={2} />
-            ) : isStreaming ? (
+            ) : isRunning || isStreaming ? (
               <LoaderCircle size={12} strokeWidth={1.8} className="activity-row-spinner" />
             ) : (
-              // Run aborted mid-tool: no result will ever arrive — show a
-              // terminal "interrupted" indicator instead of a live spinner.
               <CircleSlash size={12} strokeWidth={1.8} style={{ opacity: 0.5 }} />
             )}
           </span>
-          <span className={`activity-row-tool${isError ? " activity-row-tool-error" : ""}`}>{block.toolName}</span>
-          <span className="activity-row-preview">{getToolPreview(block)}</span>
+          <span className="activity-tool-icon" aria-hidden>
+            <ToolCategoryIcon category={category} size={12} />
+          </span>
+          <span className={`activity-row-tool${isError ? " activity-row-tool-error" : ""}`}>{hubTool ?? block.toolName}</span>
+          <span className="activity-row-preview">
+            {cleanFilePath && onOpenFile ? (
+              <span
+                role="button"
+                tabIndex={0}
+                className="activity-file-link"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenFile(cleanFilePath);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.stopPropagation();
+                    onOpenFile(cleanFilePath);
+                  }
+                }}
+                title={hubPreview ?? preview}
+              >
+                {hubPreview ?? preview}
+              </span>
+            ) : (
+              hubPreview ?? preview
+            )}
+          </span>
           {duration !== undefined && (
             <span className="activity-row-duration">{t("messageView.durationSeconds", { seconds: duration })}</span>
           )}
           <ChevronDown
-            size={11}
+            size={12}
             strokeWidth={1.8}
             aria-hidden
             style={{
@@ -815,9 +989,47 @@ const ToolCallBlock = memo(function ToolCallBlock({ block, result, duration, isS
             <div className="tool-call-command">
               <span className="tool-call-command-prompt" aria-hidden>$</span>
               <code>{command}</code>
+              <button
+                type="button"
+                className="tool-call-input-toggle"
+                aria-expanded={inputExpanded}
+                aria-controls={inputId}
+                onClick={() => setInputExpanded((value) => !value)}
+              >
+                {t(inputExpanded ? "messageView.collapseInput" : "messageView.showFullInput")}
+              </button>
             </div>
+            <div id={inputId} hidden={!inputExpanded} className="tool-call-input">
+              {inputExpanded && (
+                block.input && typeof block.input === "object" && !Array.isArray(block.input) && Object.keys(block.input).length > 0 ? (
+                  <dl>
+                    {Object.entries(block.input).map(([key, value]) => (
+                      <div key={key}>
+                        <dt>{key === "i" ? "intent" : key}</dt>
+                        <dd><pre>{typeof value === "string" ? value : safeJson(value)}</pre></dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : <pre>{safeJson(block.input)}</pre>
+              )}
+            </div>
+            {todoSummary && (
+              <div className="tool-call-todo-badge">
+                <span className={`todo-op-tag todo-op-${todoSummary.op}`}>
+                  {todoSummary.action}
+                </span>
+                <span className="todo-task-name">{todoSummary.task ?? todoSummary.label}</span>
+              </div>
+            )}
             <TaskResultPanel details={result?.details} />
-            {result ? (
+            <HubResultPanel input={block.input} result={result} />
+            {isRunning && (resultText ?? "").trim() === "" ? (
+              // No output yet: say so instead of the "(no output)" marker that
+              // would claim the tool finished with nothing.
+              <div data-tool-running="true" style={{ color: "var(--text-dim)", fontSize: 12 }}>
+                {t("chatWindow.runningTool")}
+              </div>
+            ) : result ? (
               resultDiff ? (
                 <PairedDiffResult diff={resultDiff} />
               ) : (
@@ -834,7 +1046,7 @@ const ToolCallBlock = memo(function ToolCallBlock({ block, result, duration, isS
                       ))}
                     </div>
                   )}
-                  {!(resultIsEmpty && resultImages.length > 0) && (
+                  {!(hubJobs || (hubSend && !isError)) && !(resultIsEmpty && resultImages.length > 0) && (
                     <PairedResult text={formatToolOutput(resultText ?? "", block.toolName)} isEmpty={resultIsEmpty} isError={isError} />
                   )}
                 </>
@@ -852,6 +1064,120 @@ const ToolCallBlock = memo(function ToolCallBlock({ block, result, duration, isS
   && prev.result === next.result
   && prev.duration === next.duration
   && prev.defaultCollapsed === next.defaultCollapsed
+  && prev.inGroup === next.inGroup
+  && prev.onOpenFile === next.onOpenFile
+));
+
+const ToolCallGroupBlock = memo(function ToolCallGroupBlock({
+  items,
+  toolResults,
+  isStreaming,
+  toolCallDurations,
+  onOpenFile,
+  toolCallsDefaultCollapsed,
+}: {
+  items: Array<{ block: ToolCallContent; originalIndex: number }>;
+  toolResults?: Map<string, ToolResultMessage>;
+  isStreaming?: boolean;
+  toolCallDurations?: Map<string, number>;
+  onOpenFile?: (filePath: string) => void;
+  toolCallsDefaultCollapsed: boolean;
+}) {
+  const { t } = useI18n();
+  const [expanded, setExpanded] = useState(!toolCallsDefaultCollapsed);
+  const blocks = items.map((i) => i.block);
+  const groupSummary = useMemo(() => summarizeToolCallGroup(blocks), [blocks]);
+
+  const hasError = blocks.some((b) => toolResults?.get(b.toolCallId)?.isError);
+  // A partial snapshot is a tool still executing, not a settled result.
+  const isPending = isStreaming && blocks.some((b) => {
+    const result = toolResults?.get(b.toolCallId);
+    return !result || result.partial === true;
+  });
+
+  const totalDuration = useMemo(() => {
+    if (!toolCallDurations) return undefined;
+    let sum = 0;
+    let counted = 0;
+    for (const b of blocks) {
+      const d = toolCallDurations.get(b.toolCallId);
+      if (d !== undefined) {
+        sum += d;
+        counted++;
+      }
+    }
+    return counted > 0 ? sum : undefined;
+  }, [blocks, toolCallDurations]);
+
+  return (
+    <div className="activity-group" data-activity-operation="true">
+      <Collapsible open={expanded} onOpenChange={setExpanded}>
+        <CollapsibleTrigger className="activity-group-header">
+          <span className="activity-group-icon-cluster" aria-hidden>
+            {groupSummary.categories.slice(0, 3).map((cat) => (
+              <ToolCategoryIcon key={cat} category={cat} size={12} />
+            ))}
+          </span>
+          <span className="activity-group-summary">
+            {groupSummary.summaryText}
+          </span>
+          {totalDuration !== undefined && (
+            <span className="activity-row-duration">
+              {t("messageView.durationSeconds", { seconds: totalDuration })}
+            </span>
+          )}
+          <span className={`activity-row-indicator${hasError ? " activity-row-indicator-error" : ""}`} aria-hidden>
+            {hasError ? (
+              <CircleAlert size={12} strokeWidth={1.8} />
+            ) : isPending ? (
+              <LoaderCircle size={12} strokeWidth={1.8} className="activity-row-spinner" />
+            ) : (
+              <Check size={12} strokeWidth={2} />
+            )}
+          </span>
+          <ChevronDown
+            size={12}
+            strokeWidth={1.8}
+            aria-hidden
+            style={{
+              flexShrink: 0,
+              transform: expanded ? "none" : "rotate(-90deg)",
+              transition: "transform var(--dur-fast) var(--ease-out-warm)",
+            }}
+          />
+        </CollapsibleTrigger>
+        {expanded && (
+          <div className="activity-group-body">
+            {items.map(({ block }) => {
+              const result = toolResults?.get(block.toolCallId);
+              const duration = toolCallDurations?.get(block.toolCallId);
+              return (
+                <ToolCallBlock
+                  key={block.toolCallId}
+                  block={block}
+                  result={result}
+                  duration={duration}
+                  isStreaming={isStreaming}
+                  defaultCollapsed={true}
+                  inGroup={true}
+                  onOpenFile={onOpenFile}
+                />
+              );
+            })}
+          </div>
+        )}
+      </Collapsible>
+    </div>
+  );
+}, (prev, next) => (
+  prev.items.length === next.items.length
+  && prev.items.every((item, i) => (
+    item.block.toolCallId === next.items[i]?.block.toolCallId
+    && item.block.toolName === next.items[i]?.block.toolName
+    && inputsShallowEqual(item.block.input, next.items[i]?.block.input)
+  ))
+  && prev.onOpenFile === next.onOpenFile
+  && (!prev.toolResults || !next.toolResults || prev.items.every((item) => prev.toolResults?.get(item.block.toolCallId) === next.toolResults?.get(item.block.toolCallId)))
 ));
 
 
@@ -874,7 +1200,7 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 650 }}>{t("messageView.compactionLabel")}</span>
           {time && <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontSize: 10 }}>{time}</span>}
         </div>
-        <div style={{ padding: "11px 13px 12px" }}>
+        <div data-selection-scope="message" tabIndex={-1} style={{ padding: "11px 13px 12px" }}>
           <div style={{ color: "var(--text)", fontSize: 15, fontWeight: 700, lineHeight: 1.35 }}>{t("messageView.conversationCompacted")}</div>
           {(method || (tokensBefore !== null && tokensAfter !== null)) && (
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
@@ -982,7 +1308,7 @@ function HiddenExtensionView({ message, cwd, onOpenFile }: { message: CustomMess
 
   return (
     <div style={{ marginBottom: 8, display: "flex", justifyContent: "center" }}>
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 0, width: "100%", maxWidth: 640 }}>
+      <div data-selection-scope="message" tabIndex={-1} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 0, width: "100%", maxWidth: 640 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, width: "100%" }}>
           <div style={{ flex: 1, height: 1, background: "var(--border)", opacity: 0.55 }} />
           <button
@@ -991,6 +1317,7 @@ function HiddenExtensionView({ message, cwd, onOpenFile }: { message: CustomMess
             aria-expanded={expanded}
             aria-label={expanded ? t("messageView.collapse") : t("messageView.expand")}
             style={{
+              userSelect: expanded ? "none" : undefined,
               display: "inline-flex",
               alignItems: "center",
               gap: 6,
@@ -1007,7 +1334,7 @@ function HiddenExtensionView({ message, cwd, onOpenFile }: { message: CustomMess
             }}
           >
             <EyeOff size={12} strokeWidth={1.8} style={{ flexShrink: 0, opacity: 0.85 }} />
-            <span style={{ fontFamily: "var(--font-mono)", fontWeight: 650, letterSpacing: "0.01em", color: "var(--text-muted)", fontSize: 11 }}>
+            <span style={{ userSelect: "none", fontFamily: "var(--font-mono)", fontWeight: 650, letterSpacing: "0.01em", color: "var(--text-muted)", fontSize: 11 }}>
               {label}
             </span>
             {preview ? (
@@ -1020,7 +1347,7 @@ function HiddenExtensionView({ message, cwd, onOpenFile }: { message: CustomMess
           </button>
           <div style={{ flex: 1, height: 1, background: "var(--border)", opacity: 0.55 }} />
         </div>
-        {time ? <span style={{ marginTop: 2, color: "var(--text-dim)", fontSize: 10, fontVariantNumeric: "tabular-nums", opacity: 0.75 }}>{time}</span> : null}
+        {time ? <span style={{ userSelect: "none", marginTop: 2, color: "var(--text-dim)", fontSize: 10, fontVariantNumeric: "tabular-nums", opacity: 0.75 }}>{time}</span> : null}
         {expanded ? (
           <div
             style={{
@@ -1059,6 +1386,7 @@ function HiddenExtensionView({ message, cwd, onOpenFile }: { message: CustomMess
             </div>
             <div
               style={{
+                userSelect: "none",
                 display: "flex",
                 alignItems: "center",
                 gap: 8,
@@ -1172,6 +1500,8 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
   return (
     <div style={{ marginBottom: 16 }}>
       <div
+        data-selection-scope="message"
+        tabIndex={-1}
         style={{
           border: "1px solid var(--border)",
           borderRadius: 8,
@@ -1181,6 +1511,7 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
       >
         <div
           style={{
+            userSelect: "none",
             display: "flex",
             alignItems: "center",
             gap: 8,
@@ -1238,6 +1569,7 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
 
         <div
           style={{
+            userSelect: "none",
             display: "flex",
             alignItems: "center",
             gap: 8,
@@ -1428,7 +1760,7 @@ function BashExecutionView({ message, sessionId }: { message: BashExecutionMessa
     : null;
 
   return (
-    <div style={{ margin: "6px 0" }}>
+    <div data-selection-scope="message" tabIndex={-1} style={{ margin: "6px 0" }}>
       <ToolCallBlock block={block} result={result} />
       {downloadUrl && (
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 6 }}>

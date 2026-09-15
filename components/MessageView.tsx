@@ -724,8 +724,6 @@ function AssistantMessageView({
           {time && <span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: "auto" }}>{time}</span>}
         </div>
       )}
-        </div>
-      )}
     </div>
   );
 }

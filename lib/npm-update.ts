@@ -1,10 +1,24 @@
 import packageJson from "../package.json";
 import { isUpdateDisabled } from "./update-policy";
+import { existsSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { join, normalize, sep } from "path";
 
 const NPM_PACKAGE = "@kahme247/ompweb";
 const CHECK_TTL_MS = 60 * 60 * 1000;
+
+export function getPackageVersion(packageDir: string): string {
+  try {
+    const pkgPath = join(packageDir, "package.json");
+    if (existsSync(pkgPath)) {
+      const data = JSON.parse(readFileSync(pkgPath, "utf-8"));
+      if (typeof data?.version === "string" && data.version.trim().length > 0) {
+        return data.version.trim();
+      }
+    }
+  } catch {}
+  return packageJson.version;
+}
 
 export interface NpmUpdateStatus {
   currentVersion: string;
@@ -36,8 +50,8 @@ export function isNewerVersion(availableVersion: string, currentVersion: string)
 }
 
 export async function checkNpmUpdate(force = false): Promise<NpmUpdateStatus> {
-  const currentVersion = packageJson.version;
   const packageDir = process.env.OMP_WEB_PACKAGE_DIR ?? process.cwd();
+  const currentVersion = getPackageVersion(packageDir);
   const method = detectInstallMethod(packageDir);
   const updateCommand = method === "bun" ? "bun add -g @kahme247/ompweb" : "npm install -g @kahme247/ompweb";
 

@@ -69,11 +69,10 @@ function isLaunchdActive() {
   } catch { return false; }
 }
 function isTrayActive() {
+  if (process.platform !== "win32") return false;
   try {
     const svc = path.join(os.homedir(), ".omp", "agent", "web-service.json");
-    if (!fs.existsSync(svc)) return false;
-    const data = readJson(svc);
-    return Boolean(data && data.pid);
+    return fs.existsSync(svc);
   } catch { return false; }
 }
 
@@ -180,7 +179,15 @@ async function restartServices(info) {
   try {
     const restartRequest = path.join(root, attemptId + ".restart-request.json");
     const restartAck = path.join(root, attemptId + ".restart-ack.json");
-    atomicWrite(restartRequest, { attemptId, port: descriptor && descriptor.port, hostname: descriptor && descriptor.hostname, requestedAt: new Date().toISOString() });
+    atomicWrite(restartRequest, {
+      protocol: 1,
+      action: "start",
+      generation: 1,
+      attemptId,
+      port: descriptor && descriptor.port,
+      hostname: descriptor && descriptor.hostname,
+      requestedAt: new Date().toISOString(),
+    });
     // Wait up to 30s for ack
     for (let i = 0; i < 30; i++) {
       if (fs.existsSync(restartAck)) break;
@@ -226,7 +233,13 @@ async function main() {
     await sleep(500);
     updateStatus({ state: "succeeded", stage: "finalizing", finishedAt: new Date().toISOString(), cleanupReady: true });
     // write complete marker
-    try { atomicWrite(markerFile("complete.json"), { attemptId, completedAt: new Date().toISOString() }); } catch {}
+    try {
+      atomicWrite(markerFile("complete.json"), {
+        protocol: 1,
+        attemptId,
+        completedAt: new Date().toISOString(),
+      });
+    } catch {}
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     updateStatus({ state: "failed", error: msg.slice(0, 240), finishedAt: new Date().toISOString(), cleanupReady: true });

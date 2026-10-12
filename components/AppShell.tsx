@@ -540,7 +540,7 @@ export function AppShell({ appName }: { appName: string }) {
       showAppUpdateFailure(status.error);
       return true;
     }
-    if (status.state === "succeeded" && data.currentVersion === targetVersion) {
+    if (status.state === "succeeded" && (data.currentVersion === targetVersion || !data.updateAvailable)) {
       if (!await acknowledgeAppUpdate(attemptId)) return false;
       await completeAppUpdate(targetVersion);
       return true;

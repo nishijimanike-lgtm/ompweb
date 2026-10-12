@@ -1,0 +1,104 @@
+#Requires -Version 5.1
+<#
+.SYNOPSIS
+    Installs the omp-web Desktop application (Rust / Tauri v2) and creates Desktop / Start Menu shortcuts.
+.PARAMETER TargetDir
+    Installation directory. Defaults to $env:LOCALAPPDATA\Programs\ompweb-desktop
+.PARAMETER Launch
+    Launch the desktop application immediately after installation.
+#>
+
+param(
+    [string]$TargetDir = "",
+    [switch]$Launch
+)
+
+$ErrorActionPreference = "Stop"
+
+$RepoRoot = (Resolve-Path "$PSScriptRoot\..\..").Path
+$SourceExe = Join-Path $RepoRoot "src-tauri\target\release\ompweb-desktop.exe"
+$SourceIco = Join-Path $RepoRoot "src-tauri\icons\tray-desktop.ico"
+
+if (!(Test-Path $SourceExe)) {
+    Write-Host "[!] Release executable not found at: $SourceExe" -ForegroundColor Yellow
+    Write-Host "    Attempting to build desktop binary first..." -ForegroundColor Cyan
+    & cargo build --release --manifest-path (Join-Path $RepoRoot "src-tauri\Cargo.toml")
+    if ($LASTEXITCODE -ne 0 -or !(Test-Path $SourceExe)) {
+        Write-Error "Failed to build ompweb-desktop.exe"
+        exit 1
+    }
+}
+
+if ([string]::IsNullOrWhiteSpace($TargetDir)) {
+    $TargetDir = Join-Path $env:LOCALAPPDATA "Programs\ompweb-desktop"
+}
+
+Write-Host "Installing omp-web Desktop application..." -ForegroundColor Green
+Write-Host "  Source: $SourceExe"
+Write-Host "  Target Directory: $TargetDir"
+
+if (!(Test-Path $TargetDir)) {
+    New-Item -Path $TargetDir -ItemType Directory -Force | Out-Null
+}
+
+# Copy binary and icons
+$InstalledExe = Join-Path $TargetDir "ompweb-desktop.exe"
+$InstalledIco = Join-Path $TargetDir "tray-desktop.ico"
+
+Copy-Item -Path $SourceExe -Destination $InstalledExe -Force
+if (Test-Path $SourceIco) {
+    Copy-Item -Path $SourceIco -Destination $InstalledIco -Force
+}
+
+Write-Host "  [OK] Binary installed to: $InstalledExe" -ForegroundColor Green
+
+# Create Shortcuts
+$wsh = New-Object -ComObject WScript.Shell
+
+# 1. Desktop Shortcut
+$desktopDir = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::Desktop)
+$desktopLnk = Join-Path $desktopDir "omp-web Desktop.lnk"
+try {
+    $sc = $wsh.CreateShortcut($desktopLnk)
+    $sc.TargetPath = $InstalledExe
+    $sc.WorkingDirectory = $RepoRoot
+    if (Test-Path $InstalledIco) {
+        $sc.IconLocation = "$InstalledIco,0"
+    } else {
+        $sc.IconLocation = "$InstalledExe,0"
+    }
+    $sc.Description = "omp-web Desktop Coding Agent (GUI)"
+    $sc.Save()
+    Write-Host "  [OK] Desktop shortcut created: $desktopLnk" -ForegroundColor Green
+} catch {
+    Write-Host "  [WARN] Failed to create Desktop shortcut: $_" -ForegroundColor Yellow
+}
+
+# 2. Start Menu Shortcut
+$startMenuDir = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::Programs)
+$startMenuLnk = Join-Path $startMenuDir "omp-web Desktop.lnk"
+try {
+    $sc2 = $wsh.CreateShortcut($startMenuLnk)
+    $sc2.TargetPath = $InstalledExe
+    $sc2.WorkingDirectory = $RepoRoot
+    if (Test-Path $InstalledIco) {
+        $sc2.IconLocation = "$InstalledIco,0"
+    } else {
+        $sc2.IconLocation = "$InstalledExe,0"
+    }
+    $sc2.Description = "omp-web Desktop Coding Agent (GUI)"
+    $sc2.Save()
+    Write-Host "  [OK] Start Menu shortcut created: $startMenuLnk" -ForegroundColor Green
+} catch {
+    Write-Host "  [WARN] Failed to create Start Menu shortcut: $_" -ForegroundColor Yellow
+}
+
+Write-Host "`nInstallation completed successfully!" -ForegroundColor Cyan
+Write-Host "Executable: $InstalledExe"
+Write-Host "Desktop Shortcut: $desktopLnk"
+Write-Host "Start Menu Shortcut: $startMenuLnk"
+
+if ($Launch) {
+    Write-Host "`nLaunching omp-web Desktop..." -ForegroundColor Green
+    Start-Process -FilePath $InstalledExe
+}

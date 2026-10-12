@@ -67,24 +67,24 @@ export async function POST(req: NextRequest) {
     const isMac = process.platform === "darwin";
 
     if (app === "explorer") {
+      let child;
       if (isWin) {
         const normPath = path.win32.normalize(filePath);
-        if (isDir) {
-          spawn("explorer.exe", [normPath], { detached: true, stdio: "ignore" }).unref();
-        } else {
-          spawn("explorer.exe", [`/select,${normPath}`], { detached: true, stdio: "ignore" }).unref();
-        }
+        const explorerExe = process.env.SystemRoot ? path.join(process.env.SystemRoot, "explorer.exe") : "explorer.exe";
+        child = isDir
+          ? spawn(explorerExe, [normPath], { detached: true, stdio: "ignore" })
+          : spawn(explorerExe, [`/select,${normPath}`], { detached: true, stdio: "ignore" });
       } else if (isMac) {
-        if (isDir) {
-          spawn("open", [filePath], { detached: true, stdio: "ignore" }).unref();
-        } else {
-          spawn("open", ["-R", filePath], { detached: true, stdio: "ignore" }).unref();
-        }
+        child = isDir
+          ? spawn("open", [filePath], { detached: true, stdio: "ignore" })
+          : spawn("open", ["-R", filePath], { detached: true, stdio: "ignore" });
       } else {
         // Linux
         const target = isDir ? filePath : path.dirname(filePath);
-        spawn("xdg-open", [target], { detached: true, stdio: "ignore" }).unref();
+        child = spawn("xdg-open", [target], { detached: true, stdio: "ignore" });
       }
+      child.on("error", () => {});
+      child.unref();
       return NextResponse.json({ ok: true, app: APP_NAMES.explorer });
     }
 
@@ -133,11 +133,13 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    spawn(exePath, [filePath], {
+    const child = spawn(exePath, [filePath], {
       shell: isWin && (exePath.endsWith(".cmd") || exePath.endsWith(".bat")),
       detached: true,
       stdio: "ignore",
-    }).unref();
+    });
+    child.on("error", () => {});
+    child.unref();
 
     return NextResponse.json({ ok: true, app: APP_NAMES[app] });
   } catch (error) {

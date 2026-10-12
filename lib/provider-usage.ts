@@ -1,6 +1,6 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
-import { formatWindowsBatchArgs, isWindowsBatch, resolveOmpBin } from "./omp/omp-cli";
+import { resolveOmpBin, wrapWindowsScript } from "./omp/omp-cli";
 import { asNumber, isRecord } from "./type-guards";
 import type {
   ProviderUsageReport,
@@ -19,6 +19,7 @@ type CachedUsage = { expiresAt: number; output: string };
 
 let usageCache: CachedUsage | undefined;
 let usageInFlight: Promise<string> | undefined;
+let usageInFlightForced = false;
 
 function nonEmptyString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -56,10 +57,6 @@ function usageWindow(
     percent: fraction * 100,
     ...(resetAt !== undefined ? { resetHours: Math.max(0, Math.round((resetAt - now) / 3_600_000)) } : {}),
   };
-}
-
-function accountLabel(metadata: Record<string, unknown> | undefined): string | undefined {
-  return nonEmptyString(metadata?.email) ?? nonEmptyString(metadata?.accountId);
 }
 
 type UsageLimit = { id: ProviderUsageWindowId; fraction: number; window: Record<string, unknown> };
@@ -115,7 +112,9 @@ function normalizeReport(
     selectedGroups.splice(0, selectedGroups.length, selected);
   }
   const metadata = isRecord(rawReport.metadata) ? rawReport.metadata : undefined;
-  const label = accountLabel(metadata);
+  // Email only: unredacted account ids are opaque UUIDs, so those accounts
+  // show as "Account N".
+  const label = nonEmptyString(metadata?.email);
   const plan = nonEmptyString(metadata?.planType);
   if (selectedGroups.length === 0) {
     return [{
@@ -159,25 +158,37 @@ export function parseProviderUsageOutput(output: string, query: UsageQuery = {},
   return { generatedAt, reports };
 }
 
-async function fetchProviderUsage(): Promise<string> {
+async function fetchProviderUsage(refresh = false): Promise<string> {
   const bin = resolveOmpBin();
   if (!bin) throw new Error("omp binary not found. Install oh-my-pi or set OMP_WEB_OMP_BIN.");
-  const isBatch = isWindowsBatch(bin);
-  const rawArgs = ["usage", "--json", "--redact"];
-  const finalArgs = isBatch ? formatWindowsBatchArgs(rawArgs) : rawArgs;
-  const { stdout } = await execFileAsync(bin, finalArgs, {
+  if (refresh) {
+    const invalidateTarget = wrapWindowsScript(bin, ["usage", "invalidate"]);
+    await execFileAsync(invalidateTarget.file, invalidateTarget.args, {
+      timeout: USAGE_TIMEOUT_MS,
+      maxBuffer: USAGE_MAX_BUFFER,
+      windowsHide: true,
+    });
+  }
+  // Unredacted so accounts show their real email; only the parsed label, plan
+  // and windows reach the browser, never the raw metadata.
+  const usageTarget = wrapWindowsScript(bin, ["usage", "--json"]);
+  const { stdout } = await execFileAsync(usageTarget.file, usageTarget.args, {
     timeout: USAGE_TIMEOUT_MS,
     maxBuffer: USAGE_MAX_BUFFER,
     windowsHide: true,
-    shell: isBatch,
   });
   return stdout;
 }
 
-function getUsageOutput(): Promise<string> {
-  if (usageCache && usageCache.expiresAt > Date.now()) return Promise.resolve(usageCache.output);
-  if (usageInFlight) return usageInFlight;
-  usageInFlight = fetchProviderUsage()
+function getUsageOutput(refresh = false): Promise<string> {
+  if (!refresh && usageCache && usageCache.expiresAt > Date.now()) return Promise.resolve(usageCache.output);
+  if (usageInFlight) {
+    return refresh && !usageInFlightForced
+      ? usageInFlight.then(() => getUsageOutput(true), () => getUsageOutput(true))
+      : usageInFlight;
+  }
+  usageInFlightForced = refresh;
+  usageInFlight = fetchProviderUsage(refresh)
     .then((output) => {
       usageCache = { output, expiresAt: Date.now() + USAGE_CACHE_TTL_MS };
       return output;
@@ -186,6 +197,6 @@ function getUsageOutput(): Promise<string> {
   return usageInFlight;
 }
 
-export async function getProviderUsage(query: UsageQuery = {}): Promise<ProviderUsageSnapshot> {
-  return parseProviderUsageOutput(await getUsageOutput(), query);
+export async function getProviderUsage(query: UsageQuery = {}, refresh = false): Promise<ProviderUsageSnapshot> {
+  return parseProviderUsageOutput(await getUsageOutput(refresh), query);
 }

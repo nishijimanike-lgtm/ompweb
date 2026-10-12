@@ -12,6 +12,8 @@ const {
   escapeUnitPath,
   escapeUnitValue,
   formatExecStart,
+  launcherInterpreterDir,
+  readLauncherInterpreter,
   resolveOmpwebBin,
   runCli,
   validateHostname,
@@ -22,6 +24,7 @@ const {
   serializeServiceEnv,
   writeServiceEnv,
 } = require("./service-env.js");
+const { hashPassword, verifyPassword } = require("./omp-web-password-hash.js");
 
 test("service env files round-trip quoted values", () => {
   const serialized = serializeServiceEnv({
@@ -65,13 +68,50 @@ test("buildUnit points at the generated env file and keeps runtime settings out 
   assert.match(unit, /WorkingDirectory=%h/);
   assert.match(unit, /EnvironmentFile=\/home\/u\/\.omp\/agent\/web-service\.env/);
   assert.doesNotMatch(unit, /PORT=/);
-  assert.doesNotMatch(unit, /OMP_WEB_PASSWORD/);
+  assert.doesNotMatch(unit, /OMP_WEB_PASSWORD_HASH/);
+  assert.doesNotMatch(unit, /OMP_WEB_PASSWORD=/);
   assert.match(unit, /Restart=on-failure/);
   assert.match(unit, /StartLimitIntervalSec=60/);
   assert.match(unit, /StartLimitBurst=5/);
   assert.match(unit, /WantedBy=default\.target/);
   if (process.platform === "linux") {
     assert.match(unit, /"PATH=\/home\/u\/\.bun\/bin:\/usr\/local\/bin:.*\/usr\/bin:\/bin"/);
+  }
+});
+
+test("buildUnit adds the launcher interpreter dir for Bun/npm installs of omp", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ompweb-systemd-bun-"));
+  try {
+    const fakeBinDir = path.join(dir, "local", "bin");
+    const fakeBunDir = path.join(dir, "mise", "shims");
+    mkdirSync(fakeBinDir, { recursive: true });
+    mkdirSync(fakeBunDir, { recursive: true });
+    // Bun global installs are launcher scripts needing `bun` at runtime.
+    writeFileSync(path.join(fakeBinDir, "omp"), "#!/usr/bin/env bun\n", { mode: 0o755 });
+    writeFileSync(path.join(fakeBunDir, "bun"), "#!/bin/sh\n", { mode: 0o755 });
+
+    assert.equal(readLauncherInterpreter(path.join(fakeBinDir, "omp")), "bun");
+    assert.equal(
+      launcherInterpreterDir(path.join(fakeBinDir, "omp"), { PATH: [fakeBunDir, "/usr/bin"].join(path.delimiter) }),
+      fakeBunDir,
+    );
+    // Null when the interpreter is not installed: keep the old PATH shape.
+    assert.equal(launcherInterpreterDir(path.join(fakeBinDir, "omp"), { PATH: "/usr/bin" }), null);
+
+    const unit = buildUnit({
+      ompwebBin: "/usr/local/bin/ompweb",
+      env: { OMP_WEB_OMP_BIN: path.join(fakeBinDir, "omp") },
+      home: "/home/u",
+      envPath: "/home/u/.omp/agent/web-service.env",
+    });
+    const pathLine = unit.split("\n").find((line) => line.startsWith("Environment="));
+    assert.ok(pathLine?.includes(`PATH=${escapeUnitValue(fakeBinDir)}${path.delimiter}`), `unit PATH missing omp dir: ${pathLine}`);
+    assert.ok(!pathLine?.includes(escapeUnitValue(fakeBunDir)), `unit PATH should not invent a bun dir: ${pathLine}`);
+    // Native binaries have no shebang: PATH keeps the old shape.
+    writeFileSync(path.join(fakeBinDir, "omp-native"), "\x7fELF-native-binary", { mode: 0o755 });
+    assert.equal(readLauncherInterpreter(path.join(fakeBinDir, "omp-native")), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
@@ -124,9 +164,13 @@ test("install creates the env file and unit with LAN settings", { skip: process.
       OMP_WEB_HOSTNAME: "0.0.0.0",
       OMP_WEB_PASSWORD: "test-password",
       OMP_WEB_NO_OPEN: "0",
+      OMP_WEB_TRUSTED_HEADER_SHA256: "a".repeat(64),
+      OMP_WEB_DISABLE_AUTOUPDATE: "1",
+      OMP_WEB_NAME: "My Box",
       PORT: "40123",
     };
     delete childEnv.PI_CODING_AGENT_DIR;
+    delete childEnv.OMP_WEB_OMP_BIN;
 
     const result = spawnSync(process.execPath, [path.join(process.cwd(), "bin", "omp-web-systemd.js"), "install", "--no-autostart"], {
       env: childEnv,
@@ -136,14 +180,99 @@ test("install creates the env file and unit with LAN settings", { skip: process.
 
     const envPath = path.join(home, ".omp", "agent", "web-service.env");
     const unitPath = path.join(home, ".config", "systemd", "user", "ompweb.service");
-    assert.deepEqual(parseServiceEnv(readFileSync(envPath, "utf8")), {
+    const written = parseServiceEnv(readFileSync(envPath, "utf8"));
+    // The installer hashes OMP_WEB_PASSWORD: only the hash may reach the env
+    // file, and omp-web refuses to start on a plaintext password (issue #239).
+    assert.match(written.OMP_WEB_PASSWORD_HASH, /^scrypt\$15\$8\$1\$[A-Za-z0-9_-]{22}\$[A-Za-z0-9_-]{43}$/);
+    assert.equal(written.OMP_WEB_PASSWORD, undefined);
+    assert.equal(verifyPassword("test-password", written.OMP_WEB_PASSWORD_HASH), true);
+    assert.equal(verifyPassword("not-the-password", written.OMP_WEB_PASSWORD_HASH), false);
+    delete written.OMP_WEB_PASSWORD_HASH;
+    assert.deepEqual(written, {
       PORT: "40123",
       OMP_WEB_HOSTNAME: "0.0.0.0",
       OMP_WEB_NO_OPEN: "0",
-      OMP_WEB_PASSWORD: "test-password",
+      OMP_WEB_DISABLE_AUTOUPDATE: "1",
+      OMP_WEB_NAME: "My Box",
+      OMP_WEB_TRUSTED_HEADER_SHA256: "a".repeat(64),
     });
     assert.match(readFileSync(unitPath, "utf8"), /EnvironmentFile=.*web-service\.env/);
     assert.match(result.stdout, /config:.*web-service\.env/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("install writes a pre-hashed password unchanged and rejects a broken one", { skip: process.platform !== "linux" }, () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ompweb-systemd-hash-"));
+  try {
+    const home = path.join(dir, "home");
+    const binDir = path.join(dir, "bin");
+    const fakeOmpweb = path.join(binDir, "ompweb");
+    const fakeSystemctl = path.join(binDir, "systemctl");
+    mkdirSync(home, { recursive: true });
+    mkdirSync(binDir, { recursive: true });
+    writeFileSync(fakeOmpweb, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    writeFileSync(fakeSystemctl, "#!/bin/sh\ncase \"$*\" in *is-active*) exit 3 ;; *) exit 0 ;; esac\n", { mode: 0o755 });
+    const base = {
+      ...process.env,
+      HOME: home,
+      PATH: binDir,
+      OMP_WEB_SYSTEMD_BIN: fakeOmpweb,
+      OMP_WEB_HOSTNAME: "0.0.0.0",
+    };
+    delete base.PI_CODING_AGENT_DIR;
+    delete base.OMP_WEB_OMP_BIN;
+    delete base.OMP_WEB_PASSWORD;
+
+    const provided = hashPassword("preset-password");
+    const ok = spawnSync(process.execPath, [path.join(process.cwd(), "bin", "omp-web-systemd.js"), "install", "--no-autostart"], {
+      env: { ...base, OMP_WEB_PASSWORD_HASH: provided },
+      encoding: "utf8",
+    });
+    assert.equal(ok.status, 0, ok.stderr);
+    assert.equal(
+      parseServiceEnv(readFileSync(path.join(home, ".omp", "agent", "web-service.env"), "utf8")).OMP_WEB_PASSWORD_HASH,
+      provided,
+    );
+
+    const broken = spawnSync(process.execPath, [path.join(process.cwd(), "bin", "omp-web-systemd.js"), "install", "--no-autostart"], {
+      env: { ...base, OMP_WEB_PASSWORD_HASH: "definitely-not-a-hash" },
+      encoding: "utf8",
+    });
+    assert.notEqual(broken.status, 0);
+    assert.match(broken.stderr, /not a valid password hash/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("install fails loudly when the omp launcher interpreter is missing", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ompweb-systemd-missing-interp-"));
+  try {
+    const binDir = path.join(dir, "bin");
+    const fakeOmpweb = path.join(binDir, "ompweb");
+    mkdirSync(binDir, { recursive: true });
+    writeFileSync(fakeOmpweb, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    // Launcher script needing an interpreter that is nowhere on PATH.
+    writeFileSync(path.join(binDir, "omp"), "#!/usr/bin/env bun\n", { mode: 0o755 });
+
+    const childEnv = {
+      ...process.env,
+      // No node dir: the spawn uses an absolute process.execPath, and adding
+      // it breaks the premise when node and bun share a directory.
+      PATH: binDir,
+      OMP_WEB_SYSTEMD_BIN: fakeOmpweb,
+      OMP_WEB_OMP_BIN: path.join(binDir, "omp"),
+      PORT: "40123",
+    };
+    const result = spawnSync(process.execPath, [path.join(process.cwd(), "bin", "omp-web-systemd.js"), "install", "--no-autostart"], {
+      env: childEnv,
+      encoding: "utf8",
+    });
+    // runCli fails before the platform gate (platform-agnostic message).
+    assert.match(result.stderr, /interpreter.*bun.*not found on PATH/);
+    assert.notEqual(result.status, 0);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

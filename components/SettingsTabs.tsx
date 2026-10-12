@@ -1,7 +1,7 @@
 "use client";
 
 import { useI18n } from "@/lib/i18n";
-import { BarChart3, Blocks, Bot, Cable, Cpu, KeyRound, RefreshCw, Settings2, ShieldCheck, Sparkles } from "lucide-react";
+import { BarChart3, Bell, Blocks, Bot, Cable, Cpu, KeyRound, RefreshCw, Settings2, ShieldCheck, Sparkles } from "lucide-react";
 import type { ComponentType, CSSProperties } from "react";
 
 export type SettingsTab =
@@ -16,6 +16,7 @@ export type SettingsTab =
   | "mcp"
   | "skills"
   | "plugins"
+  | "notifications"
   | "system";
 
 export interface TabItem {
@@ -36,6 +37,7 @@ export const SETTINGS_CATEGORIES: TabItem[] = [
   { id: "agents", label: "Agents", description: "Task agents, model settings, and tool policy", Icon: Bot },
   { id: "skills", label: "Skill Hub", description: "Sources workspace, scenes, market catalog, and format diagnostics", Icon: Blocks },
   { id: "mcp", label: "Extensions & Tools", description: "MCP servers, managed skills, and OMP plugins", Icon: Cable },
+  { id: "notifications", label: "Notifications", description: "Desktop and mobile notifications for your sessions", Icon: Bell },
   { id: "system", label: "System & Updates", description: "App updates, runtime version, and active session restart", Icon: RefreshCw },
 ];
 
@@ -49,11 +51,13 @@ export function SettingsTabs({
   onSelect,
   workspaceReady = true,
   layout = "vertical",
+  attentionTabs,
 }: {
   active: SettingsTab;
   onSelect: (tab: SettingsTab) => void;
   workspaceReady?: boolean;
   layout?: "horizontal" | "vertical";
+  attentionTabs?: Partial<Record<SettingsTab, boolean | string>>;
 }) {
   const { t } = useI18n();
   const currentActive = getNormalizedActive(active);
@@ -93,6 +97,9 @@ export function SettingsTabs({
           const displayDescription = trDesc !== descKey ? trDesc : description;
           const selected = id === currentActive;
           const disabled = Boolean(needsWorkspace && !workspaceReady);
+          const attention = attentionTabs?.[id];
+          const hasAttention = Boolean(attention);
+          const attentionLabel = typeof attention === "string" ? attention : t("settingsTabs.attentionRequired");
           return (
             <button
               key={id}
@@ -101,6 +108,8 @@ export function SettingsTabs({
               id={`settings-tab-${id}`}
               aria-selected={selected}
               aria-controls={`settings-panel-${id}`}
+              aria-label={hasAttention ? `${displayLabel}: ${displayDescription} (${attentionLabel})` : undefined}
+              title={hasAttention ? `${displayDescription} (${attentionLabel})` : displayDescription}
               tabIndex={selected ? 0 : -1}
               disabled={disabled}
               onClick={() => onSelect(id)}
@@ -111,7 +120,24 @@ export function SettingsTabs({
                 cursor: disabled ? "not-allowed" : "pointer",
               }}
             >
-              <Icon size={16} aria-hidden="true" style={{ marginTop: 2, flexShrink: 0, color: selected ? "var(--accent)" : "currentColor" }} />
+              <span style={{ position: "relative", display: "inline-flex", flexShrink: 0, marginTop: 2, color: selected ? "var(--accent)" : "currentColor" }}>
+                <Icon size={16} aria-hidden="true" />
+                {hasAttention && (
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      position: "absolute",
+                      top: -3,
+                      right: -4,
+                      width: 6,
+                      height: 6,
+                      borderRadius: "50%",
+                      background: "var(--accent)",
+                      border: "1px solid var(--bg-panel)",
+                    }}
+                  />
+                )}
+              </span>
               <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
                 <div style={{ fontSize: 13, fontWeight: selected ? 600 : 500, lineHeight: 1.3, color: selected ? "var(--text)" : "inherit" }}>
                   {displayLabel}
@@ -128,7 +154,7 @@ export function SettingsTabs({
   }
 
   return (
-    <nav aria-label={t("settingsTabs.ariaLabel")} role="tablist" style={{ display: "flex", gap: 3, padding: "7px 12px", borderBottom: "1px solid var(--border)", background: "var(--bg-panel)", flexShrink: 0, overflowX: "auto" }}>
+    <nav className="settings-nav-horizontal" aria-label={t("settingsTabs.ariaLabel")} role="tablist" style={{ display: "flex", gap: 3, padding: "7px 12px", borderBottom: "1px solid var(--border)", background: "var(--bg-panel)", flexShrink: 0, overflowX: "auto" }}>
       {SETTINGS_CATEGORIES.map(({ id, label, description, Icon, needsWorkspace }, index) => {
         const labelKey = `settingsTabs.${id}.label`;
         const descKey = `settingsTabs.${id}.description`;
@@ -138,6 +164,9 @@ export function SettingsTabs({
         const displayDescription = trDesc !== descKey ? trDesc : description;
         const selected = id === currentActive;
         const disabled = Boolean(needsWorkspace && !workspaceReady);
+        const attention = attentionTabs?.[id];
+        const hasAttention = Boolean(attention);
+        const attentionLabel = typeof attention === "string" ? attention : t("settingsTabs.attentionRequired");
         return (
           <button
             key={id}
@@ -146,15 +175,32 @@ export function SettingsTabs({
             id={`settings-tab-${id}`}
             aria-selected={selected}
             aria-controls={`settings-panel-${id}`}
-            aria-label={`${displayLabel}: ${displayDescription}`}
-            title={displayDescription}
+            aria-label={hasAttention ? `${displayLabel}: ${displayDescription} (${attentionLabel})` : `${displayLabel}: ${displayDescription}`}
+            title={hasAttention ? `${displayDescription} (${attentionLabel})` : displayDescription}
             tabIndex={selected ? 0 : -1}
             disabled={disabled}
             onClick={() => onSelect(id)}
             onKeyDown={(event) => onKeyDown(event, index)}
             style={{ display: "inline-flex", alignItems: "flex-start", gap: 5, padding: "6px 9px", border: "none", borderRadius: "var(--radius-control)", background: selected ? "var(--bg-selected)" : "transparent", color: selected ? "var(--text)" : "var(--text-muted)", cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.45 : 1, fontSize: 12, whiteSpace: "nowrap", textAlign: "left", minWidth: 150 }}
           >
-            <Icon size={13} aria-hidden="true" />
+            <span style={{ position: "relative", display: "inline-flex", flexShrink: 0, marginTop: 1 }}>
+              <Icon size={13} aria-hidden="true" />
+              {hasAttention && (
+                <span
+                  aria-hidden="true"
+                  style={{
+                    position: "absolute",
+                    top: -3,
+                    right: -4,
+                    width: 6,
+                    height: 6,
+                    borderRadius: "50%",
+                    background: "var(--accent)",
+                    border: "1px solid var(--bg-panel)",
+                  }}
+                />
+              )}
+            </span>
             <span style={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}>
               <span style={{ fontWeight: selected ? 600 : 500 }}>{displayLabel}</span>
               <span style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", color: "var(--text-muted)", fontSize: 10, fontWeight: 400, lineHeight: 1.25 }}>{displayDescription}</span>

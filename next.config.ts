@@ -1,9 +1,15 @@
 import type { NextConfig } from "next";
 import { readFileSync } from "fs";
-import { join } from "path";
-import { PHASE_DEVELOPMENT_SERVER } from "next/constants";
+import { dirname, join } from "path";
+import { fileURLToPath } from "url";
+import { PHASE_DEVELOPMENT_SERVER } from "next/constants.js";
 
-const { version } = JSON.parse(readFileSync(join(__dirname, "package.json"), "utf8")) as { version: string };
+// The WASM SWC build used on wasm-first targets (e.g. aarch64-linux-android)
+// does not transpile ESM to CJS, so this file loads as ESM there and
+// `__dirname` is undefined. `typeof` on an undeclared identifier is safe.
+const packageDir = typeof __dirname !== "undefined" ? __dirname : dirname(fileURLToPath(import.meta.url));
+
+const { version } = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8")) as { version: string };
 
 // Function form: `phase` is authoritative even when the host environment
 // carries a stray NODE_ENV (e.g. NODE_ENV=production inherited by `next dev`
@@ -43,7 +49,14 @@ const nextConfig = (phase: string): NextConfig => {
       }
       return config;
     },
-    allowedDevOrigins: ["127.0.0.1", "192.168.*.*"],
+    allowedDevOrigins: [
+      "127.0.0.1",
+      // RFC1918 private IPv4 ranges. Next.js accepts hostname patterns, not CIDRs.
+      "10.*.*.*",
+      ...Array.from({ length: 16 }, (_, i) => `172.${16 + i}.*.*`),
+      "192.168.*.*",
+      ...(process.env.OMP_WEB_DEV_ORIGIN ? [process.env.OMP_WEB_DEV_ORIGIN] : []),
+    ],
     // Security: stop advertising the runtime, and surface dev-mode problems
     // earlier. Source maps in the browser bundle leak server path layout and
     // bloat downloads without helping end users of a published app.
@@ -58,7 +71,7 @@ const nextConfig = (phase: string): NextConfig => {
         { key: "X-Frame-Options", value: "DENY" },
         { key: "Referrer-Policy", value: "no-referrer" },
         { key: "Permissions-Policy", value: "camera=(), microphone=(self), geolocation=()" },
-        { key: "Content-Security-Policy", value: "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' ws: wss:; font-src 'self' data:" },
+        { key: "Content-Security-Policy", value: "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' ws: wss:; font-src 'self' data:; media-src 'self' blob:" },
       ];
       // /api/files streams workspace files whose document policy depends on the
       // content type (strict CSP for SVG, the DOCX preview policy, none for

@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>omp-web Desktop</title>
+    <!--
+      Desktop cold-start screen. Embedded into ompweb-desktop.exe as `frontendDist`
+      (see tauri.conf.json), shown while the Rust supervisor starts the Node service
+      and probes 127.0.0.1:<port>. The supervisor navigates away from this page as
+      soon as the service answers, so this page is only ever visible during startup
+      or when startup failed (then it offers a retry).
+
+      Self-contained on purpose: it must render with no network, no build step and
+      no access to the web app's assets.
+    -->
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #faf7f2;
+        --panel: #ffffff;
+        --border: #e5ded3;
+        --text: #2c2823;
+        --muted: #6f675d;
+        --accent: #a2591f;
+        --danger: #b3261e;
+        --meta: #8a2f26;
+        --spinner-track: rgba(162, 89, 31, 0.18);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #201d19;
+          --panel: #292521;
+          --border: #3c362f;
+          --text: #efe9e1;
+          --muted: #a89f92;
+          --accent: #e0a165;
+          --danger: #ef8a80;
+          --spinner-track: rgba(224, 161, 101, 0.2);
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: ui-sans-serif, system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        padding: 28px 20px;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      main {
+        width: min(520px, 100%);
+        padding: 24px 22px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        text-align: center;
+      }
+      .mark {
+        width: 56px;
+        height: 56px;
+        margin: 0 auto 18px;
+        border-radius: 14px;
+        background: linear-gradient(150deg, var(--accent), #d9b382);
+        opacity: 0.92;
+      }
+      h1 {
+        margin: 0 0 6px;
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+      }
+      .status {
+        margin: 0;
+        font-size: 14px;
+        color: var(--muted);
+      }
+      .status.error {
+        color: var(--danger);
+        font-weight: 600;
+      }
+      .spinner {
+        width: 26px;
+        height: 26px;
+        margin: 16px auto 0;
+        border: 3px solid var(--spinner-track);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin 0.9s linear infinite;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .spinner {
+          animation-duration: 3s;
+        }
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .detail {
+        margin: 14px 0 0;
+        padding: 10px 12px;
+        max-height: 108px;
+        overflow: auto;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+        font-size: 12px;
+        line-height: 1.5;
+        color: var(--meta);
+        text-align: left;
+        white-space: pre-wrap;
+        word-break: break-word;
+        -webkit-user-select: text;
+        user-select: text;
+      }
+      .actions {
+        margin-top: 20px;
+        display: flex;
+        gap: 10px;
+        justify-content: center;
+      }
+      button {
+        font: inherit;
+        font-size: 14px;
+        padding: 9px 20px;
+        border-radius: 10px;
+        border: 1px solid var(--accent);
+        background: var(--accent);
+        color: #fff;
+        cursor: pointer;
+      }
+      button:hover {
+        filter: brightness(1.06);
+      }
+      button.ghost {
+        background: transparent;
+        color: var(--text);
+        border-color: var(--border);
+      }
+      [hidden] {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="mark"></div>
+      <h1>omp-web Desktop</h1>
+      <p class="status" id="status">正在启动 ompweb 服务…<br />Starting the ompweb service…</p>
+      <div class="spinner" id="spinner"></div>
+      <pre class="detail" id="detail" hidden></pre>
+      <div class="actions" id="actions" hidden>
+        <button id="retry" type="button">重试 / Retry</button>
+        <button id="open" class="ghost" type="button">在浏览器中打开 / Open in browser</button>
+      </div>
+    </main>
+    <script>
+      (function () {
+        var params = new URLSearchParams(window.location.search);
+        var port = params.get("port") || "30177";
+        var target = "http://127.0.0.1:" + port + "/";
+        var probeUrl = "http://127.0.0.1:" + port + "/icon.png?probe=";
+        var PROBE_TIMEOUT_MS = 2500;
+        var START_DEADLINE_MS = 45000;
+        var RETRY_DEADLINE_MS = 20000;
+
+        var statusEl = document.getElementById("status");
+        var spinner = document.getElementById("spinner");
+        var detail = document.getElementById("detail");
+        var actions = document.getElementById("actions");
+
+        var done = false;
+        var inFlight = false;
+        var deadline = Date.now() + START_DEADLINE_MS;
+        var failMessage = failureText();
+
+        function failureText() {
+          return (
+            "No response from " +
+            target +
+            "\n\nThe background service did not become ready in time.\n" +
+            "从终端启动可看到完整日志 / Start it from a terminal to see the log:\n" +
+            "  npm run start"
+          );
+        }
+
+        function go() {
+          if (done) return;
+          done = true;
+          window.location.replace(target);
+        }
+
+        function showFailure(message) {
+          if (done) return;
+          done = true;
+          spinner.hidden = true;
+          statusEl.className = "status error";
+          statusEl.textContent = "ompweb 服务启动失败 / Failed to start the ompweb service";
+          detail.hidden = false;
+          detail.textContent = message;
+          actions.hidden = false;
+        }
+
+        function restartWait(ms, message, busyText) {
+          done = false;
+          inFlight = false;
+          deadline = Date.now() + ms;
+          failMessage = message;
+          statusEl.className = "status";
+          statusEl.textContent = busyText;
+          spinner.hidden = false;
+          detail.hidden = true;
+          actions.hidden = true;
+        }
+
+        // A service that accepts the connection but never answers must not stall
+        // the loop: each probe is abandoned after PROBE_TIMEOUT_MS, and the
+        // deadline check below turns the screen into a retry prompt regardless.
+        function tick() {
+          if (done) return;
+          if (Date.now() > deadline) {
+            showFailure(failMessage);
+            return;
+          }
+          if (inFlight) return;
+          inFlight = true;
+
+          var img = new Image();
+          var finished = false;
+          var timeout = window.setTimeout(function () {
+            img.src = "data:,";
+            finish(false);
+          }, PROBE_TIMEOUT_MS);
+
+          function finish(ok) {
+            if (finished) return;
+            finished = true;
+            inFlight = false;
+            window.clearTimeout(timeout);
+            if (ok) go();
+            else window.setTimeout(tick, 900);
+          }
+
+          img.onload = function () {
+            finish(true);
+          };
+          img.onerror = function () {
+            finish(false);
+          };
+          img.src = probeUrl + Date.now();
+        }
+
+        document.getElementById("retry").addEventListener("click", function () {
+          restartWait(
+            RETRY_DEADLINE_MS,
+            "Retried, but " + target + " still did not answer.\n" +
+              "服务仍未响应 / The service is still not responding.\n" +
+              "  npm run start",
+            "正在重试… / Retrying…"
+          );
+        });
+        document.getElementById("open").addEventListener("click", function () {
+          window.open(target, "_blank");
+        });
+
+        // The Rust supervisor navigates this window itself once its health probe
+        // passes; this loop only covers a missed navigate and the failure screen.
+        window.setInterval(tick, 600);
+        tick();
+      })();
+    </script>
+  </body>
+</html>

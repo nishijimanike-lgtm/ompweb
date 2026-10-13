@@ -23,3 +23,13 @@ tauri-plugin-log = "2"
 tauri-plugin-single-instance = "2"
 open = "5"
 ureq = "2"
+
+[features]
+# Production mode: embed `frontendDist` (./desktop-assets) into the executable and
+# stop resolving the webview's initial URL from `devUrl`. tauri/build.rs derives
+# `cfg(dev)` from this feature alone (`dev = !custom-protocol`), so a plain
+# `cargo build --release` produces a DEV-flavoured binary whose window opens
+# http://127.0.0.1:30178 (the dev server port) and flashes a connection error
+# in an installed app. `tauri build` sets this automatically; direct cargo builds
+# must pass `--features custom-protocol` (see scripts/windows/install-desktop.ps1).
+custom-protocol = ["tauri/custom-protocol"]

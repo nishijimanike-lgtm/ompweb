@@ -54,10 +54,22 @@ pub fn run() {
                                 if let Ok(parsed) = target_url.parse() {
                                     let _ = window.navigate(parsed);
                                 }
+                                // The window starts hidden (tauri.conf.json) so the
+                                // cold-start screen never flashes before the app is
+                                // actually serving.
+                                let _ = window.show();
+                                let _ = window.set_focus();
                             }
                         }
                         Err(e) => {
                             log::error!("Failed to ensure ompweb service is running: {}", e);
+                            // Show the window anyway: it still shows the embedded
+                            // cold-start screen, which turns itself into a failure +
+                            // retry screen after its own timeout.
+                            if let Some(window) = app_handle.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
                         }
                     }
                 });

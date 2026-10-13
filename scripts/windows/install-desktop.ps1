@@ -10,6 +10,8 @@
 
 param(
     [string]$TargetDir = "",
+    [switch]$Autostart,
+    [switch]$KeepWebTray,
     [switch]$Launch
 )
 
@@ -88,15 +90,52 @@ try {
     }
     $sc2.Description = "omp-web Desktop Coding Agent (GUI)"
     $sc2.Save()
-    Write-Host "  [OK] Start Menu shortcut created: $startMenuLnk" -ForegroundColor Green
 } catch {
     Write-Host "  [WARN] Failed to create Start Menu shortcut: $_" -ForegroundColor Yellow
+}
+
+# Clean up conflicting legacy Web tray service and shortcuts unless explicitly kept
+if (!$KeepWebTray) {
+    Write-Host "`nChecking for conflicting legacy Web tray service..." -ForegroundColor Cyan
+    $uninstallTrayScript = Join-Path $RepoRoot "scripts\windows\uninstall-tray.ps1"
+    if (Test-Path $uninstallTrayScript) {
+        try {
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $uninstallTrayScript -Quiet
+            Write-Host "  [OK] Cleaned up legacy Web tray service and conflicting shortcuts." -ForegroundColor Green
+        } catch {
+            Write-Host "  [WARN] Failed to invoke uninstall-tray.ps1: $_" -ForegroundColor Yellow
+        }
+    }
+}
+
+# 3. Startup Shortcut (if autostart enabled)
+if ($Autostart) {
+    $startupDir = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::Startup)
+    $startupLnk = Join-Path $startupDir "omp-web Desktop.lnk"
+    try {
+        $sc3 = $wsh.CreateShortcut($startupLnk)
+        $sc3.TargetPath = $InstalledExe
+        $sc3.WorkingDirectory = $RepoRoot
+        if (Test-Path $InstalledIco) {
+            $sc3.IconLocation = "$InstalledIco,0"
+        } else {
+            $sc3.IconLocation = "$InstalledExe,0"
+        }
+        $sc3.Description = "omp-web Desktop Coding Agent (GUI)"
+        $sc3.Save()
+        Write-Host "  [OK] Windows Startup shortcut created: $startupLnk" -ForegroundColor Green
+    } catch {
+        Write-Host "  [WARN] Failed to create Startup shortcut: $_" -ForegroundColor Yellow
+    }
 }
 
 Write-Host "`nInstallation completed successfully!" -ForegroundColor Cyan
 Write-Host "Executable: $InstalledExe"
 Write-Host "Desktop Shortcut: $desktopLnk"
 Write-Host "Start Menu Shortcut: $startMenuLnk"
+if ($Autostart) {
+    Write-Host "Startup Shortcut: $startupLnk"
+}
 
 if ($Launch) {
     Write-Host "`nLaunching omp-web Desktop..." -ForegroundColor Green

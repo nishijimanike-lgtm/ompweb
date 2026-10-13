@@ -29,6 +29,14 @@ Log-Message "Uninstalling omp-web Windows System Tray & Background Service..."
 try {
     $taskkillExe = Join-Path $env:SystemRoot "System32\taskkill.exe"
     if (!(Test-Path $taskkillExe)) { $taskkillExe = "taskkill.exe" }
+
+    # Terminate native omp-web-tray.exe instances
+    $nativeTrayProcs = Get-CimInstance Win32_Process -Filter "Name = 'omp-web-tray.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.ProcessId -ne $PID }
+    foreach ($p in $nativeTrayProcs) {
+        Log-Message "  Stopping native tray process (PID $($p.ProcessId))..."
+        Start-Process -FilePath $taskkillExe -ArgumentList "/PID $($p.ProcessId) /T /F" -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue | Out-Null
+    }
+
     # Find any running powershell instance executing omp-web-tray.ps1
     $trayProcs = Get-CimInstance Win32_Process -Filter "Name LIKE '%powershell%' OR Name LIKE '%pwsh%'" -ErrorAction SilentlyContinue | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -like '*omp-web-tray.ps1*' }
     foreach ($p in $trayProcs) {

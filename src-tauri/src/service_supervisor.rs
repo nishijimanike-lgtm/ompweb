@@ -59,10 +59,23 @@ impl ServiceSupervisor {
         None
     }
 
+    /// Suppress legacy omp-web-tray.exe process to avoid double tray icons or port conflicts
+    pub fn suppress_legacy_tray() {
+        #[cfg(windows)]
+        {
+            let _ = Command::new("cmd.exe")
+                .args(["/C", "taskkill /F /IM omp-web-tray.exe >nul 2>&1"])
+                .creation_flags(CREATE_NO_WINDOW)
+                .status();
+        }
+    }
+
     /// Ensure the backend server is running.
     /// If 30178 or 30177 is already running, reuse it.
     /// Otherwise, launch `npm run dev` (debug) or `npm run start` (release).
     pub fn ensure_service_started(&self) -> Result<u16, String> {
+        Self::suppress_legacy_tray();
+
         // First check port 30178 then 30177
         if Self::is_alive(30178) {
             log::info!("ompweb service is already running on port 30178");

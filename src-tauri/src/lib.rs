@@ -20,13 +20,11 @@ pub fn run() {
         .setup({
             let supervisor = supervisor.clone();
             move |app| {
-                if cfg!(debug_assertions) {
-                    app.handle().plugin(
-                        tauri_plugin_log::Builder::default()
-                            .level(log::LevelFilter::Info)
-                            .build(),
-                    )?;
-                }
+                app.handle().plugin(
+                    tauri_plugin_log::Builder::default()
+                        .level(log::LevelFilter::Info)
+                        .build(),
+                )?;
 
                 // Window close interception: Hide to tray instead of closing
                 if let Some(window) = app.get_webview_window("main") {
@@ -51,23 +49,26 @@ pub fn run() {
                             log::info!("ompweb service is healthy on port {}", port);
                             if let Some(window) = app_handle.get_webview_window("main") {
                                 let target_url = format!("http://127.0.0.1:{}", port);
-                                if let Ok(parsed) = target_url.parse() {
-                                    let _ = window.navigate(parsed);
+                                match target_url.parse() {
+                                    Ok(parsed) => {
+                                        if let Err(e) = window.navigate(parsed) {
+                                            log::error!("Failed to navigate window to {}: {}", target_url, e);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        log::error!("Failed to parse URL {}: {}", target_url, e);
+                                    }
                                 }
-                                // The window starts hidden (tauri.conf.json) so the
-                                // cold-start screen never flashes before the app is
-                                // actually serving.
                                 let _ = window.show();
+                                let _ = window.unminimize();
                                 let _ = window.set_focus();
                             }
                         }
                         Err(e) => {
                             log::error!("Failed to ensure ompweb service is running: {}", e);
-                            // Show the window anyway: it still shows the embedded
-                            // cold-start screen, which turns itself into a failure +
-                            // retry screen after its own timeout.
                             if let Some(window) = app_handle.get_webview_window("main") {
                                 let _ = window.show();
+                                let _ = window.unminimize();
                                 let _ = window.set_focus();
                             }
                         }

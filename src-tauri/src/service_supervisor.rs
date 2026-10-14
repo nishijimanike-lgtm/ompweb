@@ -35,27 +35,124 @@ impl ServiceSupervisor {
 
     /// Check whether a service is responding on 127.0.0.1:<port>
     pub fn is_alive(port: u16) -> bool {
-        let url = format!("http://127.0.0.1:{}/", port);
-        match ureq::get(&url).timeout(Duration::from_millis(800)).call() {
+        // Fast TCP probe: if the port is not even accepting connections, return false immediately.
+        let addr = format!("127.0.0.1:{}", port);
+        if let Ok(socket_addr) = addr.parse() {
+            if std::net::TcpStream::connect_timeout(&socket_addr, Duration::from_millis(600)).is_err() {
+                return false;
+            }
+        } else {
+            return false;
+        }
+
+        // Probing /api/home is lightweight and avoids triggering Next.js full SSR/page compilation
+        let url = format!("http://127.0.0.1:{}/api/home", port);
+        match ureq::get(&url).timeout(Duration::from_secs(3)).call() {
             Ok(resp) => resp.status() < 500,
             Err(ureq::Error::Status(code, _)) => code < 500,
-            Err(_) => false,
+            Err(_) => {
+                // Fallback to probing root path with a 4s timeout
+                let root_url = format!("http://127.0.0.1:{}/", port);
+                match ureq::get(&root_url).timeout(Duration::from_secs(4)).call() {
+                    Ok(resp) => resp.status() < 500,
+                    Err(ureq::Error::Status(code, _)) => code < 500,
+                    Err(_) => false,
+                }
+            }
         }
     }
 
-    /// Find the repo root where package.json lives
+    fn get_user_home() -> Option<PathBuf> {
+        #[cfg(windows)]
+        {
+            std::env::var_os("USERPROFILE").map(PathBuf::from)
+        }
+        #[cfg(not(windows))]
+        {
+            std::env::var_os("HOME").map(PathBuf::from)
+        }
+    }
+
+    /// Find the repo root where package.json lives across multiple possible launch contexts
     pub fn find_project_root() -> Option<PathBuf> {
-        let mut cur = std::env::current_dir().ok()?;
-        for _ in 0..6 {
-            if cur.join("package.json").exists() {
-                return Some(cur);
-            }
-            if let Some(parent) = cur.parent() {
-                cur = parent.to_path_buf();
-            } else {
-                break;
+        // 1. Explicit environment variable
+        if let Ok(val) = std::env::var("OMP_WEB_ROOT") {
+            let p = PathBuf::from(val);
+            if p.join("package.json").exists() {
+                return Some(p);
             }
         }
+
+        // 2. Walk up from current working directory
+        if let Ok(mut cur) = std::env::current_dir() {
+            for _ in 0..6 {
+                if cur.join("package.json").exists() {
+                    return Some(cur);
+                }
+                if let Some(parent) = cur.parent() {
+                    cur = parent.to_path_buf();
+                } else {
+                    break;
+                }
+            }
+        }
+
+        // 3. Walk up from executable directory
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(mut cur) = exe_path.parent().map(|p| p.to_path_buf()) {
+                for _ in 0..6 {
+                    if cur.join("package.json").exists() {
+                        return Some(cur);
+                    }
+                    if let Some(parent) = cur.parent() {
+                        cur = parent.to_path_buf();
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+
+        // 4. Check ~/.omp/agent/web-service.json
+        if let Some(home) = Self::get_user_home() {
+            let config_path = home.join(".omp").join("agent").join("web-service.json");
+            if config_path.exists() {
+                if let Ok(content) = std::fs::read_to_string(&config_path) {
+                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                        if let Some(repo_root) = val.get("repoRoot").and_then(|v| v.as_str()) {
+                            let p = PathBuf::from(repo_root);
+                            if p.join("package.json").exists() {
+                                return Some(p);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 5. Check ~/.omp/agent/projects.json for an ompweb checkout
+            let projects_path = home.join(".omp").join("agent").join("projects.json");
+            if projects_path.exists() {
+                if let Ok(content) = std::fs::read_to_string(&projects_path) {
+                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                        if let Some(projects) = val.get("projects").and_then(|v| v.as_array()) {
+                            for proj in projects {
+                                if let Some(path_str) = proj.get("path").and_then(|v| v.as_str()) {
+                                    let p = PathBuf::from(path_str);
+                                    if p.join("package.json").exists() {
+                                        if let Ok(pkg_content) = std::fs::read_to_string(p.join("package.json")) {
+                                            if pkg_content.contains("ompweb") {
+                                                return Some(p);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         None
     }
 
@@ -72,7 +169,7 @@ impl ServiceSupervisor {
 
     /// Ensure the backend server is running.
     /// If 30178 or 30177 is already running, reuse it.
-    /// Otherwise, launch `npm run dev` (debug) or `npm run start` (release).
+    /// Otherwise, launch `npm run dev` (debug/unbuilt) or `npm run start` (release).
     pub fn ensure_service_started(&self) -> Result<u16, String> {
         Self::suppress_legacy_tray();
 
@@ -88,24 +185,31 @@ impl ServiceSupervisor {
             return Ok(30177);
         }
 
-        let target_port = if cfg!(debug_assertions) { 30178 } else { 30177 };
-        self.set_port(target_port);
+        let mut target_port = if cfg!(debug_assertions) { 30178 } else { 30177 };
 
         let root = Self::find_project_root()
             .ok_or_else(|| "Could not locate project root with package.json".to_string())?;
 
+        // In release mode, if production build .next/BUILD_ID is missing, fallback to dev mode
+        if target_port == 30177 && !root.join(".next").join("BUILD_ID").exists() {
+            log::warn!("Production build not found in {:?}; falling back to dev mode on port 30178", root);
+            target_port = 30178;
+        }
+
+        self.set_port(target_port);
+
         log::info!("Starting ompweb backend service from {:?} on port {}", root, target_port);
         self.spawn_server_process(&root, target_port)?;
 
-        // Wait up to 25 seconds for the server to become responsive
+        // Wait up to 50 seconds for the server to become responsive
         let start_time = Instant::now();
-        let timeout = Duration::from_secs(25);
+        let timeout = Duration::from_secs(50);
         while start_time.elapsed() < timeout {
             if Self::is_alive(target_port) {
                 log::info!("ompweb service successfully responded on port {}", target_port);
                 return Ok(target_port);
             }
-            thread::sleep(Duration::from_millis(500));
+            thread::sleep(Duration::from_millis(600));
         }
 
         Err(format!("Timed out waiting for ompweb service on port {}", target_port))

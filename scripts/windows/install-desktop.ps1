@@ -139,14 +139,53 @@ try {
     Write-Host "  [WARN] Failed to create Start Menu shortcut: $_" -ForegroundColor Yellow
 }
 
-# Clean up conflicting legacy Web tray service and shortcuts unless explicitly kept
+# Clean up legacy NSIS installer shortcuts and stale executables
+$legacyShortcuts = @(
+    (Join-Path $desktopDir "ompweb-desktop.lnk"),
+    (Join-Path $startMenuDir "ompweb-desktop.lnk")
+)
+foreach ($legacy in $legacyShortcuts) {
+    if (Test-Path $legacy) {
+        Remove-Item -Path $legacy -Force -ErrorAction SilentlyContinue
+        Write-Host "  [OK] Cleaned up legacy shortcut: $legacy" -ForegroundColor Green
+    }
+}
+$legacyInstallDir = Join-Path $env:LOCALAPPDATA "ompweb-desktop"
+if ($legacyInstallDir -ne $TargetDir -and (Test-Path $legacyInstallDir)) {
+    try {
+        Remove-Item -Path $legacyInstallDir -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "  [OK] Cleaned up legacy installation directory: $legacyInstallDir" -ForegroundColor Green
+    } catch { }
+}
+
+# Ensure service configuration and repoRoot are saved in ~/.omp/agent/web-service.json
+$AgentDir = Join-Path $env:USERPROFILE ".omp\agent"
+if (!(Test-Path $AgentDir)) { New-Item -Path $AgentDir -ItemType Directory -Force | Out-Null }
+$ConfigPath = Join-Path $AgentDir "web-service.json"
+$configData = @{}
+if (Test-Path $ConfigPath) {
+    try {
+        $raw = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+        foreach ($prop in $raw.PSObject.Properties) {
+            $configData[$prop.Name] = $prop.Value
+        }
+    } catch { }
+}
+$configData["repoRoot"] = $RepoRoot
+if (!$configData.ContainsKey("port")) { $configData["port"] = 30177 }
+if (!$configData.ContainsKey("hostname")) { $configData["hostname"] = "127.0.0.1" }
+if (!$configData.ContainsKey("mode")) { $configData["mode"] = "start" }
+$configData | ConvertTo-Json -Depth 4 | Set-Content -Path $ConfigPath -Force
+Write-Host "  [OK] Repository root registered: $RepoRoot" -ForegroundColor Green
+
+# Clean up conflicting legacy Web tray service and shortcuts (as Desktop integrates tray functionality)
 if (!$KeepWebTray) {
-    Write-Host "`nChecking for conflicting legacy Web tray service..." -ForegroundColor Cyan
+    Write-Host "`nCleaning up legacy separate Web tray service (integrated into Desktop app)..." -ForegroundColor Cyan
     $uninstallTrayScript = Join-Path $RepoRoot "scripts\windows\uninstall-tray.ps1"
     if (Test-Path $uninstallTrayScript) {
         try {
             & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $uninstallTrayScript -Quiet
-            Write-Host "  [OK] Cleaned up legacy Web tray service and conflicting shortcuts." -ForegroundColor Green
+            Write-Host "  [OK] Cleaned up legacy separate Web tray service." -ForegroundColor Green
         } catch {
             Write-Host "  [WARN] Failed to invoke uninstall-tray.ps1: $_" -ForegroundColor Yellow
         }
@@ -184,5 +223,5 @@ if ($Autostart) {
 
 if ($Launch) {
     Write-Host "`nLaunching omp-web Desktop..." -ForegroundColor Green
-    Start-Process -FilePath $InstalledExe
+    Start-Process -FilePath $InstalledExe -WorkingDirectory $RepoRoot
 }

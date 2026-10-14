@@ -12,7 +12,8 @@ param(
     [string]$TargetDir = "",
     [switch]$Autostart,
     [switch]$KeepWebTray,
-    [switch]$Launch
+    [switch]$Launch,
+    [switch]$Rebuild
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,9 +22,41 @@ $RepoRoot = (Resolve-Path "$PSScriptRoot\..\..").Path
 $SourceExe = Join-Path $RepoRoot "src-tauri\target\release\ompweb-desktop.exe"
 $SourceIco = Join-Path $RepoRoot "src-tauri\icons\tray-desktop.ico"
 
-if (!(Test-Path $SourceExe)) {
-    Write-Host "[!] Release executable not found at: $SourceExe" -ForegroundColor Yellow
-    Write-Host "    Attempting to build desktop binary first..." -ForegroundColor Cyan
+# Ensure cargo is accessible from ~/.cargo/bin if not in PATH
+if (!(Get-Command cargo -ErrorAction SilentlyContinue)) {
+    $cargoBin = Join-Path $env:USERPROFILE ".cargo\bin"
+    if (Test-Path (Join-Path $cargoBin "cargo.exe")) {
+        $env:PATH = "$cargoBin;$env:PATH"
+    }
+}
+
+# Stop anything still running before building/overwriting: Windows locks a running
+# executable, and a backend orphaned by a forced kill would keep serving the
+# previous build on its port.
+$desktopProcs = Get-Process -Name "ompweb-desktop" -ErrorAction SilentlyContinue
+if ($desktopProcs) {
+    Write-Host "  Stopping running omp-web Desktop instance(s)..." -ForegroundColor Cyan
+    $desktopProcs | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+    Start-Sleep -Milliseconds 900
+}
+foreach ($port in 30177, 30178) {
+    $listeners = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+    foreach ($listener in $listeners) {
+        $owner = Get-CimInstance Win32_Process -Filter "ProcessId = $($listener.OwningProcess)" -ErrorAction SilentlyContinue
+        if ($owner -and $owner.Name -like "node*") {
+            Write-Host "  Stopping orphaned backend on port $port (PID $($owner.ProcessId))..." -ForegroundColor Cyan
+            Start-Process -FilePath (Join-Path $env:SystemRoot "System32\taskkill.exe") -ArgumentList "/PID $($owner.ProcessId) /T /F" -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue | Out-Null
+        }
+    }
+}
+
+if ($Rebuild -or !(Test-Path $SourceExe)) {
+    if ($Rebuild) {
+        Write-Host "Rebuilding omp-web Desktop application (--release --features custom-protocol)..." -ForegroundColor Cyan
+    } else {
+        Write-Host "[!] Release executable not found at: $SourceExe" -ForegroundColor Yellow
+        Write-Host "    Attempting to build desktop binary first..." -ForegroundColor Cyan
+    }
     # --features custom-protocol is mandatory: without it tauri/build.rs sets cfg(dev),
     # the executable stops embedding frontendDist and its window opens devUrl
     # (http://127.0.0.1:30178) instead of the embedded start screen.
@@ -44,26 +77,6 @@ Write-Host "  Target Directory: $TargetDir"
 
 if (!(Test-Path $TargetDir)) {
     New-Item -Path $TargetDir -ItemType Directory -Force | Out-Null
-}
-
-# Stop anything still running before overwriting: Windows locks a running
-# executable, and a backend orphaned by a forced kill would keep serving the
-# previous build on its port.
-$desktopProcs = Get-Process -Name "ompweb-desktop" -ErrorAction SilentlyContinue
-if ($desktopProcs) {
-    Write-Host "  Stopping running omp-web Desktop instance(s)..." -ForegroundColor Cyan
-    $desktopProcs | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
-    Start-Sleep -Milliseconds 900
-}
-foreach ($port in 30177, 30178) {
-    $listeners = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
-    foreach ($listener in $listeners) {
-        $owner = Get-CimInstance Win32_Process -Filter "ProcessId = $($listener.OwningProcess)" -ErrorAction SilentlyContinue
-        if ($owner -and $owner.Name -like "node*") {
-            Write-Host "  Stopping orphaned backend on port $port (PID $($owner.ProcessId))..." -ForegroundColor Cyan
-            Start-Process -FilePath (Join-Path $env:SystemRoot "System32\taskkill.exe") -ArgumentList "/PID $($owner.ProcessId) /T /F" -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue | Out-Null
-        }
-    }
 }
 
 # Copy binary and icons

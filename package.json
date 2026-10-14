@@ -58,6 +58,7 @@
     "desktop:icons": "node scripts/generate-desktop-icons.mjs",
     "desktop:build": "cargo build --release --manifest-path src-tauri/Cargo.toml --features custom-protocol",
     "desktop:install": "powershell -ExecutionPolicy Bypass -File scripts/windows/install-desktop.ps1",
+    "desktop:reinstall": "powershell -ExecutionPolicy Bypass -File scripts/windows/install-desktop.ps1 -Rebuild -Launch",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",

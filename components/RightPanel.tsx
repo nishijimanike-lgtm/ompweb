@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useState, type Ref, type RefObject } from "react";
+import { memo, useCallback, useEffect, useState, type Ref, type RefObject } from "react";
 import {
   AtSign,
   CheckCheck,
@@ -10,6 +10,7 @@ import {
   FileX,
   Files,
   Folder,
+  FolderOpen,
   GitBranch,
   LocateFixed,
   RefreshCw,
@@ -23,7 +24,7 @@ import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
 import { GitChangesPanel } from "./GitChangesPanel";
 import { FileViewer } from "./FileViewer";
 import { NotificationList } from "./NotificationList";
-import { toastHistory, useUnreadToastCount } from "./ui/toast";
+import { toast, toastHistory, useUnreadToastCount } from "./ui/toast";
 import { WorktreesPanel } from "./WorktreesPanel";
 import type { WorktreeContext } from "./SessionSidebar-helpers";
 import { useI18n } from "@/lib/i18n";
@@ -142,6 +143,30 @@ export const RightPanel = memo(function RightPanel({
     });
   }, [rightView]);
 
+  const handleRevealInFileExplorer = useCallback(async () => {
+    const targetPath = activeFileTab?.filePath ?? explorerCwd;
+    if (!targetPath) return;
+    try {
+      const res = await fetch("/api/files/open-app", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filePath: targetPath, app: "explorer" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data.ok) {
+        toast.success(
+          t("fileExplorer.openInAppSuccess", { app: data.app || t("fileExplorer.appExplorer") }) || `已在 ${data.app || "资源管理器"} 中打开`
+        );
+      } else {
+        toast.error(
+          data.error || t("fileExplorer.openInAppFailed", { error: "" }) || "打开应用失败"
+        );
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "请求失败");
+    }
+  }, [activeFileTab?.filePath, explorerCwd, t]);
+
   return (
     <>
       {/* Resize handle — desktop only, hidden while the panel is closed */}
@@ -226,6 +251,16 @@ export const RightPanel = memo(function RightPanel({
                 onMouseLeave={(e) => { if (fileSearchOpen) return; e.currentTarget.style.color = "var(--text-dim)"; e.currentTarget.style.background = "none"; }}
               >
                 <Search size={13} strokeWidth={2} aria-hidden="true" />
+              </button>
+              <button
+                onClick={handleRevealInFileExplorer}
+                title={t("fileExplorer.revealInFileExplorer")}
+                aria-label={t("fileExplorer.revealInFileExplorer")}
+                style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 26, height: 26, padding: 0, background: "none", border: "none", borderRadius: "var(--radius-control)", color: "var(--text-dim)", cursor: "pointer" }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; e.currentTarget.style.background = "none"; }}
+              >
+                <FolderOpen size={13} strokeWidth={2} aria-hidden="true" />
               </button>
               <button
                 onClick={() => fileExplorerRef.current?.openUploadPicker()}

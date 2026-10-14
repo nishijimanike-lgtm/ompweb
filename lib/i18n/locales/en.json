@@ -782,6 +782,7 @@
   "fileExplorer.replace": "Replace",
   "fileExplorer.searchFailed": "Search failed",
   "fileExplorer.searchFiles": "Search files",
+  "fileExplorer.revealInFileExplorer": "Reveal in File Explorer",
   "fileExplorer.searchPlaceholder": "Search files...",
   "fileExplorer.searchTruncated": "{count} matches shown. The list may be incomplete — narrow the query to see more.",
   "tabBar.git": "Git",

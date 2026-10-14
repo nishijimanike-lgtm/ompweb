@@ -769,6 +769,7 @@
   "fileExplorer.replace": "置き換え",
   "fileExplorer.searchFailed": "検索に失敗しました",
   "fileExplorer.searchFiles": "ファイルを検索",
+  "fileExplorer.revealInFileExplorer": "ファイルエクスプローラーで開く",
   "fileExplorer.searchPlaceholder": "ファイルを検索...",
   "fileExplorer.searchTruncated": "{count} 件を表示しています。結果は不完全な可能性があります。絞り込むとさらに表示されます。",
   "fileExplorer.searching": "検索中...",

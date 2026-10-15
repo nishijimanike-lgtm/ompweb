@@ -620,17 +620,23 @@ export async function GET(
       return NextResponse.json({ error: "Not a directory", code: "not_a_directory" }, { status: 400 });
     }
 
+    const includeIgnored = request.nextUrl.searchParams.get("includeIgnored") === "1" || request.nextUrl.searchParams.get("includeIgnored") === "true";
+
     // Avoid per-entry stat calls for normal files and directories. Symlinks and
     // filesystems without directory type information use the stat fallback.
     const readDirectorySync = Reflect.get(fs, "readdirSync") as typeof fs.readdirSync;
     const dirents = readDirectorySync(filePath, { withFileTypes: true });
     const entries = dirents
-      .filter((d) => !IGNORED_NAMES.has(d.name) && !IGNORED_SUFFIXES.some((s) => d.name.endsWith(s)))
+      .filter((d) => {
+        if (includeIgnored) return true;
+        return !IGNORED_NAMES.has(d.name) && !IGNORED_SUFFIXES.some((s) => d.name.endsWith(s));
+      })
       .flatMap((d) => {
         const isDir = resolveDirentIsDirectory(d, path.join(filePath, d.name));
+        const isIgnored = IGNORED_NAMES.has(d.name) || IGNORED_SUFFIXES.some((s) => d.name.endsWith(s));
         return isDir === null
           ? []
-          : [{ name: d.name, isDir, size: 0, modified: "" }];
+          : [{ name: d.name, isDir, size: 0, modified: "", ignored: isIgnored }];
       })
       .sort((a, b) => {
         // Dirs first, then files, both alphabetically

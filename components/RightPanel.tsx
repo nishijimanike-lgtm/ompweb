@@ -7,6 +7,8 @@ import {
   ChevronsDownUp,
   Copy,
   Download,
+  Eye,
+  EyeOff,
   FileX,
   Files,
   Folder,
@@ -143,6 +145,25 @@ export const RightPanel = memo(function RightPanel({
     });
   }, [rightView]);
 
+  const [showIgnored, setShowIgnored] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.localStorage.getItem("omp-explorer-show-ignored") === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  const handleToggleShowIgnored = useCallback(() => {
+    setShowIgnored((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem("omp-explorer-show-ignored", String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
   const handleRevealInFileExplorer = useCallback(async () => {
     const targetPath = activeFileTab?.filePath ?? explorerCwd;
     if (!targetPath) return;
@@ -272,6 +293,41 @@ export const RightPanel = memo(function RightPanel({
                 onMouseLeave={(e) => { if (explorerUploadBusy) return; e.currentTarget.style.color = "var(--text-dim)"; e.currentTarget.style.background = "none"; }}
               >
                 <Upload size={13} strokeWidth={2} aria-hidden="true" />
+              </button>
+              <button
+                onClick={handleToggleShowIgnored}
+                title={showIgnored ? t("fileExplorer.hideIgnored") : t("fileExplorer.showIgnored")}
+                aria-label={showIgnored ? t("fileExplorer.hideIgnored") : t("fileExplorer.showIgnored")}
+                aria-pressed={showIgnored}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 26,
+                  height: 26,
+                  padding: 0,
+                  background: showIgnored ? "var(--bg-hover)" : "none",
+                  border: "none",
+                  borderRadius: "var(--radius-control)",
+                  color: showIgnored ? "var(--accent)" : "var(--text-dim)",
+                  cursor: "pointer",
+                }}
+                onMouseEnter={(e) => {
+                  if (showIgnored) return;
+                  e.currentTarget.style.color = "var(--text-muted)";
+                  e.currentTarget.style.background = "var(--bg-hover)";
+                }}
+                onMouseLeave={(e) => {
+                  if (showIgnored) return;
+                  e.currentTarget.style.color = "var(--text-dim)";
+                  e.currentTarget.style.background = "none";
+                }}
+              >
+                {showIgnored ? (
+                  <Eye size={13} strokeWidth={2} aria-hidden="true" />
+                ) : (
+                  <EyeOff size={13} strokeWidth={2} aria-hidden="true" />
+                )}
               </button>
               <button
                 onClick={() => fileExplorerRef.current?.collapseAll()}
@@ -471,6 +527,7 @@ export const RightPanel = memo(function RightPanel({
                 <FileExplorer
                   ref={fileExplorerRef}
                   cwd={explorerCwd}
+                  showIgnored={showIgnored}
                   onOpenFile={onOpenFile}
                   refreshKey={explorerRefreshKey}
                   onAtMention={onAtMention}

@@ -35,6 +35,7 @@ interface FileEntry {
   isDir: boolean;
   size: number;
   modified: string;
+  ignored?: boolean;
 }
 
 
@@ -43,6 +44,7 @@ interface FileNode {
   fullPath: string;
   isDir: boolean;
   size: number;
+  ignored?: boolean;
   children?: FileNode[];
   loaded?: boolean;
 }
@@ -50,6 +52,7 @@ interface FileNode {
 interface Props {
   cwd: string;
   onOpenFile: (filePath: string, fileName: string) => void;
+  showIgnored?: boolean;
   refreshKey?: number;
   onAtMention?: (relativePath: string, isDir: boolean) => void;
   onAtMentions?: (relativePaths: string[]) => void;
@@ -100,9 +103,10 @@ interface PendingConflict {
   nonReplaceable: string[];
 }
 
-async function fetchEntries(dirPath: string): Promise<FileNode[]> {
+async function fetchEntries(dirPath: string, includeIgnored = false): Promise<FileNode[]> {
   const encoded = encodeFilePathForApi(dirPath);
-  const res = await fetch(`/api/files/${encoded}?type=list`);
+  const query = includeIgnored ? "?type=list&includeIgnored=1" : "?type=list";
+  const res = await fetch(`/api/files/${encoded}${query}`);
   if (!res.ok) {
     let message = translate("fileExplorer.loadFailed", { status: res.status });
     try {
@@ -119,6 +123,7 @@ async function fetchEntries(dirPath: string): Promise<FileNode[]> {
     fullPath: joinFilePath(dirPath, e.name),
     isDir: e.isDir,
     size: e.size,
+    ignored: Boolean(e.ignored),
     children: e.isDir ? [] : undefined,
     loaded: !e.isDir,
   }));
@@ -354,7 +359,7 @@ const ExplorerRow = memo(function ExplorerRow({
         />
       )}
       {!node.isDir && <span style={{ width: 10, flexShrink: 0 }} />}
-      <span style={{ flexShrink: 0, display: "flex", alignItems: "center", color: node.isDir ? "var(--text-muted)" : "var(--text-dim)" }}>
+      <span style={{ flexShrink: 0, display: "flex", alignItems: "center", color: node.isDir ? "var(--text-muted)" : "var(--text-dim)", opacity: node.ignored ? 0.65 : 1 }}>
         {node.isDir ? (
           open ? <FolderOpen size={14} strokeWidth={1.8} aria-hidden="true" /> : <Folder size={14} strokeWidth={1.8} aria-hidden="true" />
         ) : (
@@ -364,7 +369,8 @@ const ExplorerRow = memo(function ExplorerRow({
       <span
         style={{
           fontSize: 12,
-          color: "var(--text)",
+          color: node.ignored ? "var(--text-dim)" : "var(--text)",
+          opacity: node.ignored ? 0.75 : 1,
           overflow: "hidden",
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
@@ -372,7 +378,7 @@ const ExplorerRow = memo(function ExplorerRow({
           flex: secondaryLabel ? "0 1 auto" : 1,
           maxWidth: secondaryLabel ? "72%" : undefined,
         }}
-        title={node.fullPath}
+        title={node.ignored ? `${node.fullPath} (${t("fileExplorer.ignored")})` : node.fullPath}
       >
         {node.name}
       </span>
@@ -505,6 +511,7 @@ const ExplorerRow = memo(function ExplorerRow({
 export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileExplorer({
   cwd,
   onOpenFile,
+  showIgnored = false,
   refreshKey,
   onAtMention,
   onAtMentions,
@@ -709,7 +716,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     if (loadingPathsRef.current.has(dirPath)) return Promise.resolve();
     loadingPathsRef.current.add(dirPath);
     setLoadingPaths((prev) => new Set(prev).add(dirPath));
-    return fetchEntries(dirPath)
+    return fetchEntries(dirPath, showIgnored)
       .then((entries) => {
         setChildrenByPath((prev) => {
           const next = new Map(prev);
@@ -729,7 +736,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
           return next;
         });
       });
-  }, [cwd]);
+  }, [cwd, showIgnored]);
 
   // Scroll the virtual window so a row is visible, then focus it. The focus
   // retries across frames: the scroll triggers an async window re-render and
@@ -1001,7 +1008,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       for (const path of expandedPathsRef.current) fetchDir(path);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cwd, refreshKey, treeRefreshKey]);
+  }, [cwd, refreshKey, treeRefreshKey, showIgnored]);
 
   // Fetch any expanded directory that has no listing yet. Clicks, keyboard,
   // and reveal all funnel through expandedPaths, so this single effect covers

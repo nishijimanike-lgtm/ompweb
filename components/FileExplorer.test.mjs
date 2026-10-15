@@ -37,3 +37,9 @@ test("keeps the regular file tree visible while the search query is empty", () =
   assert.match(open, /(Loading files\.\.\.|fileExplorer\.loadingFiles)/);
   assert.doesNotMatch(open, /(No matching files|fileExplorer\.noMatchingFiles)/);
 });
+
+test("renders tree view with showIgnored enabled", () => {
+  const tree = render({ showIgnored: true });
+  assert.match(tree, /role="tree"/);
+  assert.match(tree, /(Loading files\.\.\.|fileExplorer\.loadingFiles)/);
+});

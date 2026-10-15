@@ -3502,11 +3502,14 @@ html[data-touch-targets="accessible"] .right-panel-toolbar {
   background: var(--border);
   flex-shrink: 0;
 }
+.right-panel-toolbar > [role="toolbar"] {
+  flex-wrap: nowrap;
+  max-width: 100%;
+}
+@media (max-width: 640px) {
   .right-panel-toolbar > [role="toolbar"] {
     flex-wrap: wrap;
-    max-width: 100%;
   }
-@media (max-width: 640px) {
   .shell-toolbar-btn {
     width: 40px;
     height: 40px;
@@ -3528,7 +3531,7 @@ html[data-touch-targets="accessible"] .right-panel-toolbar {
   }
   .right-panel-toolbar > [role="toolbar"] > button {
     min-width: 40px;
-    min-height: 40px;
+    height: 40px;
   }
   .right-panel-toolbar .tabbar-scroll {
     width: 100%;

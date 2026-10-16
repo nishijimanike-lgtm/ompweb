@@ -165,7 +165,7 @@ export const RightPanel = memo(function RightPanel({
   }, []);
 
   const handleRevealInFileExplorer = useCallback(async () => {
-    const targetPath = activeFileTab?.filePath ?? explorerCwd;
+    const targetPath = (rightView === "file" ? activeFileTab?.filePath : null) ?? explorerCwd;
     if (!targetPath) return;
     try {
       const res = await fetch("/api/files/open-app", {
@@ -174,11 +174,7 @@ export const RightPanel = memo(function RightPanel({
         body: JSON.stringify({ filePath: targetPath, app: "explorer" }),
       });
       const data = await res.json().catch(() => ({}));
-      if (data.ok) {
-        toast.success(
-          t("fileExplorer.openInAppSuccess", { app: data.app || t("fileExplorer.appExplorer") }) || `已在 ${data.app || "资源管理器"} 中打开`
-        );
-      } else {
+      if (!data.ok) {
         toast.error(
           data.error || t("fileExplorer.openInAppFailed", { error: "" }) || "打开应用失败"
         );
@@ -186,7 +182,7 @@ export const RightPanel = memo(function RightPanel({
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "请求失败");
     }
-  }, [activeFileTab?.filePath, explorerCwd, t]);
+  }, [activeFileTab?.filePath, explorerCwd, rightView, t]);
 
   return (
     <>

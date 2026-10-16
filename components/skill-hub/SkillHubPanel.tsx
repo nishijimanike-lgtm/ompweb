@@ -53,7 +53,7 @@ export function SkillHubPanel(props: SkillHubPanelProps) {
         description: detail.description,
         root: (detail.source as WritableRoot) || 'user-agents',
         path: detail.path || '',
-        disabledAt: detail.updatedAt || Date.now(),
+        disabledAt: detail.updatedAt || 0,
       } : undefined
     )
     return (

@@ -188,9 +188,11 @@ export function FileExplorerContextMenu({
         });
         const data = await res.json();
         if (data.ok) {
-          toast.success(
-            t("fileExplorer.openInAppSuccess", { app: data.app || app }) || `已在 ${data.app || app} 中打开`
-          );
+          if (app !== "explorer") {
+            toast.success(
+              t("fileExplorer.openInAppSuccess", { app: data.app || app }) || `已在 ${data.app || app} 中打开`
+            );
+          }
         } else {
           toast.error(
             data.error || t("fileExplorer.openInAppFailed", { error: "" }) || "打开应用失败"
